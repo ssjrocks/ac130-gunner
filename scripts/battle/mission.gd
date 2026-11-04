@@ -306,7 +306,7 @@ func _update_range(dt: float) -> void:
 			if n == 0:
 				set_obj(1, 1)
 				add_obj("Destroy the 2 moving trucks: lead them, rounds take seconds to land")
-				radio("RANGE", "Hulks destroyed. Two trucks running the loop. Your rounds take about five seconds to land, aim ahead of them. Press C to track a target.")
+				radio("RANGE", "Hulks destroyed. Two trucks running the loop. Your rounds take about five seconds to land, so aim ahead of them, or press C to lock on and the fire-control computer leads the target for you.")
 				phase = 2
 		2:
 			var n2: int = units.count("trucks")

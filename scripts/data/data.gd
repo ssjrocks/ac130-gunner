@@ -7,7 +7,7 @@ extends RefCounted
 const WEAPONS := {
 	"w_762": {
 		"name": "GAU-2/A 7.62mm MINIGUN", "short": "7.62", "rate": 40.0, "mag": 1000, "reload": 5.0,
-		"speed": 850.0, "disp": 0.9, "dmg": 26.0, "radius": 1.1, "pen": 0, "tracer": 4,
+		"speed": 850.0, "disp": 0.55, "dmg": 40.0, "radius": 2.2, "pen": 0, "tracer": 4,
 		"fx": "small", "shake": 0.03, "sound": "mg", "reticle": "cross",
 	},
 	"w_30": {

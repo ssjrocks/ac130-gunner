@@ -16,6 +16,9 @@ var plan_i := 0
 var spec := ""
 var busy := false
 var input_test := false
+var gun_test := ""
+var tracer_test := false
+var gun_started := false
 var flow_mode := false
 var input_started := false
 var frames := 0
@@ -32,6 +35,12 @@ func begin(s: String) -> void:
 	if parts[0] == "input":
 		input_test = true
 		parts = parts.slice(1)
+	if parts[0] == "tracer":
+		tracer_test = true
+		parts = parts.slice(1)
+	if parts[0] == "gun":
+		gun_test = parts[1]
+		parts = parts.slice(2)
 	if parts[0] == "update":
 		flow_mode = true
 		_update_test()
@@ -95,6 +104,16 @@ func _process(dt: float) -> void:
 		print("[autotest] t=%.0f state=%s friendly=%d enemy=%d near=%d civ=%d parts=%d shells=%d score=%d hp=%.0f frame=%.1fms" % [
 			t, b.mission.state, u.count_team(0), u.count_team(1), u.enemies_near(b.mission.focus, 450.0), u.count_team(2), b.effects.parts.size(),
 			b.ordnance.shells.size(), b.stats.score + b.mission.score_bonus, b.gunship.hp, ms])
+	if tracer_test:
+		if not gun_started and t > 2.0:
+			gun_started = true
+			_tracer_test(b)
+		return
+	if gun_test != "":
+		if not gun_started and t > 2.0:
+			gun_started = true
+			_gun_test(b)
+		return
 	if input_test:
 		if not input_started and t > 2.0:
 			input_started = true
@@ -309,4 +328,83 @@ func _update_test() -> void:
 	while Updater.status == "downloading" and Time.get_ticks_msec() - t0 < 120000:
 		await get_tree().process_frame
 	print("[update] install: ", Updater.status, " ", Updater.error)
+	get_tree().quit()
+
+
+## Time to kill single soldiers with one weapon, aiming with point track:
+## five standing still, then five on the move.
+func _gun_test(b) -> void:
+	var g = b.gunship
+	g.bot = false
+	for i in g.weapons.size():
+		if g.weapons[i].id == gun_test:
+			g.wsel = i
+	g.mag_goal = 25.0
+	for moving in [false, true]:
+		var times: Array = []
+		var rounds: Array = []
+		for k in 5:
+			var u = null
+			for c in b.units.list:
+				if c.alive and c.team == 1 and not c.veh and c.beh == "soldier" and c.pos.distance_to(g.orbit_center) < 1500.0:
+					u = c
+					break
+			if u == null:
+				break
+			if moving:
+				u.order = "move"
+				u.path = [u.pos + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized() * 400.0]
+				u.path_i = 0
+				u.speed_mul = 1.6
+			else:
+				u.order = "hold"
+				u.halted = true
+			u.supp_t = 0.0
+			g.aim_point = u.pos
+			g.aim_valid = true
+			g.track_unit = u
+			await _frames(45)
+			var s0: int = g.shots
+			var t0 := t
+			Input.action_press("fire")
+			while u.alive and t - t0 < 15.0:
+				u.supp_t = 0.0
+				await get_tree().process_frame
+			Input.action_release("fire")
+			times.append(t - t0 if not u.alive else 99.0)
+			rounds.append(g.shots - s0)
+			if u.alive:
+				b.units.kill(u, false, "")
+			g.track_unit = null
+			await _frames(60)
+		print("[gun] %s %s: seconds to kill %s  rounds %s" % [gun_test, "moving" if moving else "standing", str(times), str(rounds)])
+	get_tree().quit()
+
+
+## Fires ground tracers and checks, every frame, that the drawn streak
+## stays between the muzzle and the target.
+func _tracer_test(b) -> void:
+	var fx = b.effects
+	var worst_behind := 0.0
+	var worst_beyond := 0.0
+	var first_gap := 0.0
+	for k in 20:
+		var a := Vector3(randf_range(-500, 500), 40.0, randf_range(-500, 500))
+		var tgt := a + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized() * randf_range(50.0, 600.0)
+		var dir := (tgt - a).normalized()
+		var dist := a.distance_to(tgt)
+		fx.tracer(a, tgt, Color.GREEN, 800.0)
+		var p: Dictionary = fx.tracers[fx.tracers.size() - 1]
+		var n: MeshInstance3D = p.n
+		var first := true
+		while p in fx.tracers:
+			var tail: Vector3 = n.transform.origin - n.transform.basis.y * 0.5
+			var head: Vector3 = n.transform.origin + n.transform.basis.y * 0.5
+			worst_behind = maxf(worst_behind, -(tail - a).dot(dir))
+			worst_beyond = maxf(worst_beyond, (head - a).dot(dir) - dist)
+			if first:
+				first_gap = maxf(first_gap, (tail - a).length())
+				first = false
+			await get_tree().process_frame
+	print("[tracer] max tail behind muzzle %.2f m, max head past target %.2f m, max first-frame tail gap %.2f m" % [worst_behind, worst_beyond, first_gap])
 	get_tree().quit()

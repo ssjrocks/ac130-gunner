@@ -292,7 +292,7 @@ func _draw_readouts(g, sz: Vector2) -> void:
 	var line := ""
 	if g.has_laser:
 		line += "LSR %s  " % ("ON" if g.lasing else ("ARM" if g.laser_latch else "SAFE"))
-	line += "TRK %s" % ("LOCK" if g.track_unit != null else "OFF")
+	line += "TRK %s" % (("LEAD" if g.leading() else "LOCK") if g.track_unit != null else "OFF")
 	_text(Vector2(x, y), line, 18, UiTheme.ACCENT if g.lasing else C)
 	if not g.in_gimbal():
 		_text(Vector2(sz.x * 0.5 - 200, sz.y * 0.5 + 150), "GIMBAL LIMIT", 22, UiTheme.BAD, HORIZONTAL_ALIGNMENT_CENTER, 400)

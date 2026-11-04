@@ -322,9 +322,11 @@ var tracers: Array = []
 
 func _tracer_pos(p: Dictionary) -> void:
 	var f: float = p.t / p.life
-	var dir: Vector3 = (p.b - p.a).normalized()
+	var dist: float = p.a.distance_to(p.b)
 	var head: Vector3 = p.a.lerp(p.b, f)
-	set_beam(p.n, head - dir * p.len, head, 0.12, 1.6)
+	# the tail never reaches back past the muzzle
+	var tail: Vector3 = p.a.lerp(p.b, maxf(0.0, f - float(p.len) / maxf(dist, 0.001)))
+	set_beam(p.n, tail, head, 0.12, 1.6)
 
 
 func _update_tracers(dt: float) -> void:

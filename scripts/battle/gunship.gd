@@ -41,6 +41,8 @@ var laser_latch := false
 var has_laser := false
 var track_unit = null
 var track_off := Vector3.ZERO
+var track_vel := Vector3.ZERO
+var track_last := Vector3.ZERO
 var hp := 100.0
 var flares := 30
 var flare_cd := 0.0
@@ -228,6 +230,8 @@ func _toggle_track() -> void:
 	if u != null:
 		track_unit = u
 		track_off = Vector3(0, 0.8, 0)
+		track_vel = Vector3.ZERO
+		track_last = u.pos
 		Sfx.play("lock", -6.0)
 
 
@@ -287,6 +291,10 @@ func _update_camera(dt: float) -> void:
 		if track_unit.alive:
 			aim_point = track_unit.pos + track_off
 			aim_valid = true
+			if dt > 0.0:
+				var v: Vector3 = (track_unit.pos - track_last) / dt
+				track_vel = track_vel.lerp(Vector3(v.x, 0.0, v.z), minf(1.0, dt * 4.0))
+			track_last = track_unit.pos
 		else:
 			track_unit = null
 	if aim_valid:
@@ -351,6 +359,11 @@ func _clamp_gimbal() -> void:
 		look_dir = Vector3(nh.x * hl, y, nh.z * hl)
 
 
+## True while point track is computing a lead on a moving target.
+func leading() -> bool:
+	return track_unit != null and track_vel.length() > 0.4
+
+
 func in_gimbal() -> bool:
 	var h := Vector3(look_dir.x, 0.0, look_dir.z)
 	if h.length() < 0.05:
@@ -410,10 +423,17 @@ func _shoot(w: Dictionary) -> void:
 		battle.radio("SPECTRE", "%s away, %d seconds." % [def.short, int(tot)])
 		return
 	var disp: float = float(def.disp) * 0.001 * (alt / 3050.0)
-	var right := look_dir.cross(Vector3.UP).normalized()
-	var up := right.cross(look_dir).normalized()
-	var dir := (look_dir + right * randfn(0.0, 1.0) * disp + up * randfn(0.0, 1.0) * disp).normalized()
 	var cpos := global_position + Vector3(0, -3.0, 0)
+	var aim_dir := look_dir
+	if leading():
+		# Fire control leads a tracked target by the round's time of flight.
+		var tof := origin.distance_to(aim_point) / float(def.speed)
+		var lead := aim_point + track_vel * tof
+		lead.y = battle.world.height(lead.x, lead.z) + track_off.y
+		aim_dir = (lead - cpos).normalized()
+	var right := aim_dir.cross(Vector3.UP).normalized()
+	var up := right.cross(aim_dir).normalized()
+	var dir := (aim_dir + right * randfn(0.0, 1.0) * disp + up * randfn(0.0, 1.0) * disp).normalized()
 	var hit: Dictionary = battle.world.raycast(cpos, dir, 30000.0)
 	if hit.is_empty():
 		return
