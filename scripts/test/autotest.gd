@@ -32,6 +32,10 @@ func begin(s: String) -> void:
 	if parts[0] == "input":
 		input_test = true
 		parts = parts.slice(1)
+	if parts[0] == "update":
+		flow_mode = true
+		_update_test()
+		return
 	if parts[0] == "flow":
 		flow_mode = true
 		_flow(int(parts[1]))
@@ -287,4 +291,22 @@ func _flow(i: int) -> void:
 		DirAccess.make_dir_recursive_absolute(shots_dir)
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("debrief.png"))
+	get_tree().quit()
+
+
+## Runs the updater against AC130_UPDATE_URL: check, download, swap.
+func _update_test() -> void:
+	print("[update] running ", OS.get_executable_path(), " v", Updater.current_version())
+	Updater.check()
+	var t0 := Time.get_ticks_msec()
+	while Updater.status in ["idle", "checking"] and Time.get_ticks_msec() - t0 < 20000:
+		await get_tree().process_frame
+	print("[update] check: ", Updater.status, " latest=", Updater.latest, " ", Updater.error)
+	if Updater.status != "available":
+		get_tree().quit()
+		return
+	Updater.install()
+	while Updater.status == "downloading" and Time.get_ticks_msec() - t0 < 120000:
+		await get_tree().process_frame
+	print("[update] install: ", Updater.status, " ", Updater.error)
 	get_tree().quit()
