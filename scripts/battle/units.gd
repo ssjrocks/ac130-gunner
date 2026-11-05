@@ -482,17 +482,17 @@ func _think(u: U) -> void:
 			u.think_t = randf_range(0.6, 1.2)
 			var rng: float = u.d.range
 			if rng > 0.0:
-				if u.target == null or not u.target.alive or (u.target.pos - u.pos).length() > rng * 1.15:
+				if u.target == null or not u.target.alive or (u.target.pos - u.pos).length() > rng * 1.15 or not can_see(u, u.target):
 					u.target = _find_target(u, rng)
 			if u.cargo.size() > 0 and u.order != "hold":
-				var e = _find_target(u, 350.0)
+				var e = _find_target(u, 350.0, false)
 				if e != null:
 					u.order = "hold"
 					dismount(u)
 		"zombie":
 			u.think_t = randf_range(0.35, 0.7)
 			if u.target == null or not u.target.alive or (u.target.pos - u.pos).length() > 120.0:
-				u.target = _find_target(u, 220.0)
+				u.target = _find_target(u, 220.0, false)
 		"civ":
 			u.think_t = randf_range(1.0, 2.0)
 			if u.order == "flee":
@@ -509,25 +509,49 @@ func _think(u: U) -> void:
 			u.think_t = 5.0
 
 
-func _find_target(u: U, rng: float) -> U:
-	var best: U = null
-	var bd := rng * rng
+static func eye(u: U) -> Vector3:
+	return u.pos + Vector3(0, 2.2 if u.veh else 1.6, 0)
+
+
+static func body(u: U) -> Vector3:
+	return u.pos + Vector3(0, 1.4 if u.veh else 1.0, 0)
+
+
+## Line of sight from a's eyes to b, blocked by terrain and buildings.
+func can_see(a: U, b: U) -> bool:
+	return world.los(eye(a), body(b))
+
+
+## Nearest hostile in range that the unit can actually see. need_los false
+## is for the infected, who go by sound and smell.
+func _find_target(u: U, rng: float, need_los := true) -> U:
 	var cands: Array
 	if rng > 450.0:
 		cands = list
 	else:
 		cands = query(u.pos, rng)
 	var av: bool = u.d.get("av", false)
+	var ranked: Array = []
+	var lim := rng * rng
 	for v in cands:
 		if not v.alive or not hostile(u, v):
 			continue
 		var d2: float = (v.pos - u.pos).length_squared()
+		if d2 > lim:
+			continue
 		if av and v.veh:
 			d2 *= 0.3
-		if d2 < bd:
-			bd = d2
-			best = v
-	return best
+		ranked.append([d2, v])
+	if ranked.is_empty():
+		return null
+	ranked.sort_custom(func(x, y): return x[0] < y[0])
+	if not need_los:
+		return ranked[0][1]
+	# only the closest few get a sight check, to keep it cheap
+	for i in mini(ranked.size(), 5):
+		if can_see(u, ranked[i][1]):
+			return ranked[i][1]
+	return null
 
 
 func _aa(u: U) -> void:
@@ -538,6 +562,8 @@ func _aa(u: U) -> void:
 	var slant := u.pos.distance_to(plane)
 	var kind: String = u.d.aa
 	if slant > float(u.d.aa_range):
+		return
+	if not world.los(u.pos + Vector3(0, 2, 0), plane, false):
 		return
 	if u.aa_t > 0.0:
 		return
@@ -564,6 +590,7 @@ func _fight(u: U, dt: float) -> void:
 	if dist > rng * 1.1:
 		return
 	u.fire_t = 1.0 / float(u.d.rof) * randf_range(0.7, 1.4)
+	u.data["shots"] = int(u.data.get("shots", 0)) + 1
 	if u.supp_t > 0.0:
 		u.fire_t *= 2.5
 	if not u.veh:
@@ -629,7 +656,8 @@ func _move(u: U, dt: float) -> void:
 		"assault":
 			# close the distance quickly until something is in range
 			run = u.target == null and not u.veh and (u.goal - u.pos).length() > 350.0
-	if float(u.data.get("detour_t", 0.0)) > 0.0:
+	var detouring := float(u.data.get("detour_t", 0.0)) > 0.0
+	if detouring:
 		u.data.detour_t = float(u.data.detour_t) - dt
 		tgt = u.data.detour
 	if u.beh == "zombie":
@@ -643,6 +671,10 @@ func _move(u: U, dt: float) -> void:
 	to.y = 0.0
 	var d := to.length()
 	var arrive := 7.0 if u.veh else 1.5
+	if d < arrive and detouring:
+		# round the obstacle: back to the route, without skipping waypoints
+		u.data.detour_t = 0.0
+		return
 	if d < arrive:
 		if u.order in ["move", "convoy", "path"]:
 			u.path_i += 1
@@ -652,7 +684,8 @@ func _move(u: U, dt: float) -> void:
 			_arrived(u)
 		u.moving = false
 		return
-	if u.order == "convoy" and u.leader != null and u.leader.alive and not u.leader.boarded:
+	if u.order == "convoy" and u.leader != null and u.leader.alive and not u.leader.boarded \
+			and u.leader.order == "convoy" and u.leader.path_i >= u.path_i:
 		if u.leader.pos.distance_to(u.pos) < 28.0:
 			u.moving = false
 			return

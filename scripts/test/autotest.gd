@@ -41,6 +41,21 @@ func begin(s: String) -> void:
 	if parts[0] == "gun":
 		gun_test = parts[1]
 		parts = parts.slice(2)
+	if parts[0] == "version":
+		var out := OS.get_environment("AC130_VERSION_OUT")
+		var f := FileAccess.open(out, FileAccess.WRITE)
+		f.store_string("exe=%s v=%s" % [OS.get_executable_path(), Updater.current_version()])
+		f.close()
+		get_tree().quit()
+		return
+	if parts[0] == "shake":
+		flow_mode = true
+		_shake_test()
+		return
+	if parts[0] == "los":
+		flow_mode = true
+		_los_test(parts[1])
+		return
 	if parts[0] == "update":
 		flow_mode = true
 		_update_test()
@@ -54,6 +69,10 @@ func begin(s: String) -> void:
 			cfg = Missions.campaign_cfg(int(parts[1]))
 		"skirmish":
 			cfg = Missions.skirmish_cfg(parts[1], parts[2], parts[3] if parts.size() > 3 else "day", 1)
+			if parts.size() > 4:
+				# skirmish:MAP:TYPE:TIME:N forces route N
+				var mp: Dictionary = load("res://scripts/data/maps.gd").get_map(parts[1])
+				cfg["route"] = mp.get(parts[2], [])[int(parts[4])]
 		"survival":
 			cfg = Missions.survival_cfg(parts[1], parts[2] if parts.size() > 2 else "day", 1)
 		"laststand":
@@ -90,9 +109,11 @@ func _battle():
 
 func _process(dt: float) -> void:
 	var b = _battle()
-	if b == null or flow_mode:
+	if b == null:
 		return
 	t += dt
+	if flow_mode:
+		return
 	frames += 1
 	if t >= next_print:
 		next_print += 10.0
@@ -104,6 +125,9 @@ func _process(dt: float) -> void:
 		print("[autotest] t=%.0f state=%s friendly=%d enemy=%d near=%d civ=%d parts=%d shells=%d score=%d hp=%.0f frame=%.1fms" % [
 			t, b.mission.state, u.count_team(0), u.count_team(1), u.enemies_near(b.mission.focus, 450.0), u.count_team(2), b.effects.parts.size(),
 			b.ordnance.shells.size(), b.stats.score + b.mission.score_bonus, b.gunship.hp, ms])
+		if b.mission.type == "escort":
+			for cu in b.units.members("convoy") + b.units.members("vip"):
+				print("   %s %s path %d/%d halted=%s moving=%s order=%s pos=%s detour=%s" % [cu.group, cu.kind, cu.path_i, cu.path.size(), cu.halted, cu.moving, cu.order, str(cu.pos.round()), str(cu.data.get("detour_t", 0.0))])
 	if tracer_test:
 		if not gun_started and t > 2.0:
 			gun_started = true
@@ -328,6 +352,9 @@ func _update_test() -> void:
 	while Updater.status == "downloading" and Time.get_ticks_msec() - t0 < 120000:
 		await get_tree().process_frame
 	print("[update] install: ", Updater.status, " ", Updater.error)
+	if Updater.status == "ready" and OS.get_environment("AC130_VERSION_OUT") != "":
+		print("[update] restarting")
+		Updater.restart(PackedStringArray(["--headless", "--", "--autotest=version"]))
 	get_tree().quit()
 
 
@@ -407,4 +434,116 @@ func _tracer_test(b) -> void:
 				first = false
 			await get_tree().process_frame
 	print("[tracer] max tail behind muzzle %.2f m, max head past target %.2f m, max first-frame tail gap %.2f m" % [worst_behind, worst_beyond, first_gap])
+	get_tree().quit()
+
+
+## Pairs of enemies and friendlies that can or can't see each other
+## (terrain or buildings between). Only the visible pairs should trade fire.
+func _los_test(map_id: String) -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.skirmish_cfg(map_id, "cas", "day", 1)
+	cfg["civ"] = 0.0
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	b.gunship.bot = false
+	for u in b.units.list.duplicate():
+		b.units.remove_unit(u)
+	var w = b.world
+	var pairs: Array = []
+	var want := {"terrain": 0, "building": 0, "clear": 0}
+	var need := {"terrain": 3, "building": 3, "clear": 3}
+	for tries in 20000:
+		if want.terrain >= 3 and want.building >= 3 and want.clear >= 3:
+			break
+		var a := Vector2(randf_range(-2500, 2500), randf_range(-2500, 2500))
+		if int(want.building) < 3 and tries % 2 == 0 and not w.towns.is_empty():
+			var tw: Dictionary = w.towns[randi() % w.towns.size()]
+			a = tw.pos + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * float(tw.r)
+		var ang := randf() * TAU
+		var c := a + Vector2(cos(ang), sin(ang)) * randf_range(150.0, 320.0)
+		if not w.ground_ok(a) or not w.ground_ok(c):
+			continue
+		var far := true
+		for pr in pairs:
+			if a.distance_to(pr.a) < 950.0:
+				far = false
+		if not far:
+			continue
+		var A: Vector3 = w.to3(a)
+		var C: Vector3 = w.to3(c)
+		var vis: bool = w.los(A + Vector3(0, 1.6, 0), C + Vector3(0, 1.0, 0)) and w.los(C + Vector3(0, 1.6, 0), A + Vector3(0, 1.0, 0))
+		var terrain_only: bool = w.los(A + Vector3(0, 1.6, 0), C + Vector3(0, 1.0, 0), false)
+		var kind := "clear" if vis else ("building" if terrain_only else "terrain")
+		if int(want[kind]) >= int(need[kind]):
+			continue
+		want[kind] = int(want[kind]) + 1
+		var e = b.units.spawn("rifle", 1, A, "pe", {"order": "hold"})
+		var f = b.units.spawn("soldier", 0, C, "pf", {"order": "hold"})
+		e.hp = 100000.0
+		f.hp = 100000.0
+		pairs.append({"a": a, "kind": kind, "e": e, "f": f, "d": a.distance_to(c)})
+	var t0 := t
+	while t - t0 < 40.0:
+		await get_tree().process_frame
+	var bad := 0
+	for pr in pairs:
+		for side in [[pr.e, pr.f], [pr.f, pr.e]]:
+			var shooter = side[0]
+			var sees: bool = b.units.can_see(shooter, side[1])
+			var shots: int = int(shooter.data.get("shots", 0))
+			var ok: bool = (shots > 0) == sees
+			if not ok:
+				bad += 1
+			print("[los] %-8s %4dm  %s %s, fired %3d  %s" % [pr.kind, int(pr.d), "enemy" if shooter.team == 1 else "friend", "sees" if sees else "blind", shots, "OK" if ok else "WRONG"])
+	print("[los] %s done, %d wrong" % [map_id, bad])
+	get_tree().quit()
+
+
+## Frame-to-frame image motion at high zoom, in 1080p pixels: idle,
+## minigun firing, and after a 105 round.
+func _shake_test() -> void:
+	Game.settings.loadout = "all"
+	Game.start_mission(Missions.skirmish_cfg("kharim", "cas", "day", 1))
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	var g = b.gunship
+	g.bot = false
+	g.mag_max = 150.0
+	g.mag_goal = 150.0
+	g.mag = 150.0
+	await _frames(30)
+	for phase in ["idle", "minigun", "105"]:
+		if phase == "minigun":
+			g.wsel = 0
+			Input.action_press("fire")
+		elif phase == "105":
+			Input.action_release("fire")
+			await _frames(20)
+			for i in g.weapons.size():
+				if g.weapons[i].id == "w_105":
+					g.wsel = i
+			g._shoot(g.weapons[g.wsel])
+		var anchor: Vector3 = g.aim_point
+		var prev := Vector2.INF
+		var jumps: Array = []
+		var first := Vector2.ZERO
+		var drift := 0.0
+		for f in 90:
+			await get_tree().process_frame
+			var xf: Transform3D = g.cam.global_transform
+			var to: Vector3 = (anchor - xf.origin).normalized()
+			var px: float = deg_to_rad(g.fov()) / 1080.0
+			var sp := Vector2(to.dot(xf.basis.x), to.dot(xf.basis.y)) / px
+			if prev != Vector2.INF:
+				jumps.append((sp - prev).length())
+			else:
+				first = sp
+			drift = maxf(drift, (sp - first).length())
+			prev = sp
+		jumps.sort()
+		print("[shake] %-7s ground point jumps per frame px: median %.2f  p90 %.2f  max %.2f   drift over 1.5 s %.1f px" % [phase, jumps[jumps.size() / 2], jumps[int(jumps.size() * 0.9)], jumps[jumps.size() - 1], drift])
 	get_tree().quit()

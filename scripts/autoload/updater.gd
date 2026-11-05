@@ -16,6 +16,9 @@ var progress := 0.0
 var http: HTTPRequest
 var dl: HTTPRequest
 var zip_path := ""
+# Read once at startup: once the running file is renamed to .old, Linux
+# reports that new name as the executable path.
+var exe_path := ""
 
 
 func _ready() -> void:
@@ -29,6 +32,7 @@ func _ready() -> void:
 	add_child(dl)
 	dl.request_completed.connect(_on_downloaded)
 	zip_path = OS.get_user_data_dir().path_join("update.zip")
+	exe_path = OS.get_executable_path()
 	if not enabled():
 		status = "disabled"
 		return
@@ -138,7 +142,7 @@ func _apply() -> String:
 	var zr := ZIPReader.new()
 	if zr.open(zip_path) != OK:
 		return "downloaded file is not a zip"
-	var exe := OS.get_executable_path()
+	var exe := exe_path
 	var entry := ""
 	for f in zr.get_files():
 		if f.ends_with(".exe") or f.ends_with(".x86_64"):
@@ -168,13 +172,13 @@ func _apply() -> String:
 	return ""
 
 
-func restart() -> void:
-	OS.create_process(OS.get_executable_path(), [])
+func restart(args := PackedStringArray()) -> void:
+	OS.create_process(exe_path, args)
 	get_tree().quit()
 
 
 func _cleanup_old() -> void:
-	var old := OS.get_executable_path() + ".old"
+	var old := exe_path + ".old"
 	if FileAccess.file_exists(old):
 		DirAccess.remove_absolute(old)
 

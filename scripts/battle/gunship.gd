@@ -46,7 +46,8 @@ var track_last := Vector3.ZERO
 var hp := 100.0
 var flares := 30
 var flare_cd := 0.0
-var shake := 0.0
+# Recoil and hit jolts, as a fraction of the field of view; eases back to 0.
+var kick := Vector2.ZERO
 var mouse_delta := Vector2.ZERO
 var shots := 0
 var auto_flares := false
@@ -249,7 +250,7 @@ func take_damage(amount: float, src: String) -> void:
 	if battle.ended:
 		return
 	hp -= amount * plane_dmg
-	shake = maxf(shake, 1.2 if src != "aaa" else 0.4)
+	kick += Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized() * (0.02 if src != "aaa" else 0.006)
 	battle.hud.hit_flash(0.5 if src != "aaa" else 0.15)
 	Sfx.play("hit", 0.0 if src != "aaa" else -8.0)
 	if src != "aaa":
@@ -332,15 +333,17 @@ func _update_camera(dt: float) -> void:
 		aim_range = cpos.distance_to(aim_point)
 		if track_unit != null and slewed:
 			track_off = aim_point - track_unit.pos
-	# image shake from our own guns plus a little turret vibration
-	shake = maxf(0.0, shake - dt * 2.5)
-	var jit := Vector2(sin(time * 23.0) + sin(time * 37.0) * 0.5, cos(time * 29.0) + sin(time * 17.0) * 0.5) * fov_rad * 0.0012
-	jit += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * fov_rad * 0.03 * shake
+	# The turret is gyro-stabilised: the only image motion is a recoil or
+	# hit jolt that eases back smoothly.
+	kick = kick.lerp(Vector2.ZERO, minf(1.0, dt * 8.0))
+	var jit := kick * fov_rad
 	var view := look_dir.rotated(Vector3.UP, jit.x)
 	var r2 := view.cross(Vector3.UP).normalized()
 	view = view.rotated(r2, jit.y)
-	cam.global_position = cpos
-	cam.look_at(cpos + view, Vector3.UP)
+	# Build the rotation straight from the direction: look_at() at a point
+	# 1 m ahead of a camera kilometres from the origin loses ~0.4 mrad to
+	# float rounding, which is tens of pixels of shake at high zoom.
+	cam.global_transform = Transform3D(Basis.looking_at(view, Vector3.UP), cpos)
 	cam.size = 2.0 * cam.near * tan(deg_to_rad(fov()) * 0.5)
 	battle.world.fit_shadows(aim_range, view_height_m())
 
@@ -438,7 +441,8 @@ func _shoot(w: Dictionary) -> void:
 	if hit.is_empty():
 		return
 	battle.ordnance.add_shell(origin, hit.pos, w.id, def, hit.bidx, hit.water)
-	shake = maxf(shake, float(def.shake))
+	if float(def.shake) > 0.0:
+		kick += Vector2(randf_range(-0.3, 0.3), -1.0).normalized() * float(def.shake) * 0.015
 	if def.sound != "mg":
 		Sfx.play(def.sound, -2.0, randf_range(0.95, 1.05))
 

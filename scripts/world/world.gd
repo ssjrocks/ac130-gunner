@@ -133,10 +133,16 @@ func _raw_height(x: float, z: float) -> float:
 	if river.size() > 1:
 		var rd := _river_dist(x, z)
 		if rd < 140.0:
+			# a causeway carries the road across the whole river cut
 			var keep := 0.0
+			var pz := Vector2(x, z)
 			for b in bridges:
-				var bd := Vector2(x, z).distance_to(b)
-				keep = maxf(keep, 1.0 - smoothstep(18.0, 40.0, bd))
+				if pz.distance_to(b) < 180.0:
+					var rdist := 1.0e9
+					for pts in roads:
+						for k in pts.size() - 1:
+							rdist = minf(rdist, _seg_dist(pz, pts[k], pts[k + 1]))
+					keep = maxf(keep, 1.0 - smoothstep(9.0, 22.0, rdist))
 			var carve := (1.0 - smoothstep(22.0, 140.0, rd)) * (1.0 - keep)
 			h = lerpf(h, water_level - 4.0, carve)
 	return h
@@ -502,7 +508,22 @@ func _excluded(p: Vector2, r: float) -> bool:
 	return false
 
 
-func _add_bld(c: Vector2, w: float, d: float, h: float, ang: float, col: Color, kind: String, windows: bool, hp: float, heat := 0.33) -> void:
+## True when a circle of radius r at p comes within half a road width of
+## any road or street (exact distance to every road segment).
+func touches_road(p: Vector2, r: float) -> bool:
+	for list in [roads, streets]:
+		for pts in list:
+			for k in pts.size() - 1:
+				var a: Vector2 = pts[k]
+				var b: Vector2 = pts[k + 1]
+				if _seg_dist(p, a, b) < r + 6.0:
+					return true
+	return false
+
+
+func _add_bld(c: Vector2, w: float, d: float, h: float, ang: float, col: Color, kind: String, windows: bool, hp: float, heat := 0.33, near_road_ok := false) -> void:
+	if not near_road_ok and touches_road(c, 0.5 * sqrt(w * w + d * d)):
+		return
 	var ca := cos(ang)
 	var sa := sin(ang)
 	var ax := Vector2(ca, -sa)
@@ -522,7 +543,7 @@ func _add_bld(c: Vector2, w: float, d: float, h: float, ang: float, col: Color, 
 	})
 
 
-func _outpost_walls(c: Vector2, s: float, h: float, t: float, col: Color, gate_side: int, gate_w: float, hp: float, ang := 0.0) -> void:
+func _outpost_walls(c: Vector2, s: float, h: float, t: float, col: Color, gate_side: int, gate_w: float, hp: float, ang := 0.0, road_ok := false) -> void:
 	var ax := Vector2(cos(ang), -sin(ang))
 	var az := Vector2(sin(ang), cos(ang))
 	var half := s * 0.5
@@ -538,14 +559,14 @@ func _outpost_walls(c: Vector2, s: float, h: float, t: float, col: Color, gate_s
 			for sgn in [-1.0, 1.0]:
 				var sc: Vector2 = wc + along * (sgn * (gate_w * 0.5 + seg * 0.5))
 				if horizontal:
-					_add_bld(sc, seg, t, h, ang, col, "wall", false, hp, 0.3)
+					_add_bld(sc, seg, t, h, ang, col, "wall", false, hp, 0.3, road_ok)
 				else:
-					_add_bld(sc, t, seg, h, ang, col, "wall", false, hp, 0.3)
+					_add_bld(sc, t, seg, h, ang, col, "wall", false, hp, 0.3, road_ok)
 		else:
 			if horizontal:
-				_add_bld(wc, s + t, t, h, ang, col, "wall", false, hp, 0.3)
+				_add_bld(wc, s + t, t, h, ang, col, "wall", false, hp, 0.3, road_ok)
 			else:
-				_add_bld(wc, t, s + t, h, ang, col, "wall", false, hp, 0.3)
+				_add_bld(wc, t, s + t, h, ang, col, "wall", false, hp, 0.3, road_ok)
 
 
 func _build_outposts() -> void:
@@ -563,10 +584,10 @@ func _build_outposts() -> void:
 		var hesco := Color(0.66, 0.6, 0.47)
 		if biome == "urban":
 			hesco = Color(0.58, 0.58, 0.56)
-		_outpost_walls(c, s, 2.4, 1.6, hesco, 2, 9.0, 900.0)
+		_outpost_walls(c, s, 2.4, 1.6, hesco, 2, 9.0, 900.0, 0.0, true)
 		if s >= 45.0:
 			for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-				_add_bld(c + cr * (s * 0.5 - 2.0), 3.4, 3.4, 6.5, 0.0, Color(0.55, 0.5, 0.42), "tower", false, 700.0)
+				_add_bld(c + cr * (s * 0.5 - 2.0), 3.4, 3.4, 6.5, 0.0, Color(0.55, 0.5, 0.42), "tower", false, 700.0, 0.33, true)
 			var huts := int(s / 14.0)
 			for k in huts:
 				var hp2 := Vector2(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.3, 0.3)) * s
@@ -577,9 +598,9 @@ func _build_outposts() -> void:
 				var hw := 6.0 if vertical else 12.0
 				var hd := 12.0 if vertical else 6.0
 				var cols := [Color(0.5, 0.5, 0.42), Color(0.62, 0.58, 0.48), Color(0.4, 0.44, 0.36)]
-				_add_bld(c + hp2, hw, hd, 3.0, 0.0, cols[k % 3], "hut", false, 900.0, 0.36)
+				_add_bld(c + hp2, hw, hd, 3.0, 0.0, cols[k % 3], "hut", false, 900.0, 0.36, true)
 		else:
-			_add_bld(c + Vector2(4, -4), 6.0, 3.0, 2.6, 0.0, Color(0.5, 0.5, 0.42), "hut", false, 700.0, 0.36)
+			_add_bld(c + Vector2(4, -4), 6.0, 3.0, 2.6, 0.0, Color(0.5, 0.5, 0.42), "hut", false, 700.0, 0.36, true)
 
 
 func _gen_town(t: Dictionary) -> void:
@@ -957,6 +978,47 @@ func raycast(o: Vector3, d: Vector3, maxd := 30000.0) -> Dictionary:
 			best = tb
 			res = {"pos": o + d * tb, "t": tb, "bidx": bi, "water": false}
 	return res
+
+
+## True when nothing solid lies between a and b: terrain, and (if
+## with_buildings) houses and other buildings. Compound walls don't block
+## (people fire over them), nor does anything within 8 m of either end
+## (firing from a doorway or round a corner).
+func los(a: Vector3, b: Vector3, with_buildings := true) -> bool:
+	var d := b - a
+	var L := d.length()
+	if L < 2.0:
+		return true
+	var n := clampi(int(L / 12.0), 2, 150)
+	for i in range(1, n):
+		var f := float(i) / n
+		if f * L < 5.0 or (1.0 - f) * L < 5.0:
+			continue
+		var p := a + d * f
+		if p.y < height(p.x, p.z) - 0.3:
+			return false
+	if not with_buildings:
+		return true
+	var dir := d / L
+	var seen := {}
+	var step := BCELL * 0.5
+	var k := 0.0
+	while k <= L + step:
+		var p := a + dir * minf(k, L)
+		var key := Vector2i(floori(p.x / BCELL), floori(p.z / BCELL))
+		if bgrid.has(key):
+			for bi in bgrid[key]:
+				if seen.has(bi):
+					continue
+				seen[bi] = true
+				var bd: Dictionary = buildings[bi]
+				if not bd.alive or bd.kind == "wall":
+					continue
+				var tb := _ray_box(a, dir, bd)
+				if tb > 8.0 and tb < L - 8.0:
+					return false
+		k += step
+	return true
 
 
 func _ray_box(o: Vector3, d: Vector3, b: Dictionary) -> float:
