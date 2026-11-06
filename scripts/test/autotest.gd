@@ -48,6 +48,10 @@ func begin(s: String) -> void:
 		f.close()
 		get_tree().quit()
 		return
+	if parts[0] == "callouts":
+		flow_mode = true
+		_callout_test(parts.slice(1))
+		return
 	if parts[0] == "resight":
 		flow_mode = true
 		_resight_test()
@@ -680,4 +684,65 @@ func _resight_test() -> void:
 		b.mission._update_contacts(1.0 / 30.0)
 		await get_tree().process_frame
 	report.call("seen again at B", B)
+	get_tree().quit()
+
+
+## Every radio callout of an enemy position must put markers on the map at
+## once, on the called group.
+func _callout_test(spec: Array) -> void:
+	Game.settings.loadout = "all"
+	var cfg: Dictionary
+	if spec[0] == "campaign":
+		cfg = Missions.campaign_cfg(int(spec[1]))
+		cfg["mode"] = "skirmish"
+	else:
+		cfg = Missions.skirmish_cfg(spec[1], spec[2], spec[3], 1)
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.gunship.bot = false
+	b.gunship.plane_dmg = 0.0
+	var keys := ["moving in from", "Contact", "horde", "SAM radar", "troops in contact", "convoy under attack", "movement coming"]
+	var seen_lines := 0
+	var calls := 0
+	var good := 0
+	var before := {}
+	for step in 7200:
+		for fu in b.units.list:
+			if fu.team == 0:
+				fu.hp = 1.0e6
+		var snap := {}
+		for id in b.mission.contacts:
+			snap[id] = b.mission.contacts[id].pos
+		await get_tree().process_frame
+		var log: Array = b.hud.radio_log
+		var lines: Array = []
+		for r in log:
+			if not r.has("checked"):
+				r["checked"] = true
+				lines.append(r)
+		for r in lines:
+			var hit := false
+			for k in keys:
+				if String(r.text).contains(k):
+					hit = true
+			if not hit:
+				continue
+			calls += 1
+			var fresh: Array = []
+			for id in b.mission.contacts:
+				var c: Dictionary = b.mission.contacts[id]
+				if c.pos != null and (not before.has(id) or before[id] == null or before[id] != c.pos):
+					fresh.append(c)
+			var desc := []
+			for c in fresh:
+				desc.append("%s %s" % [c.text, str(Vector3(c.pos).round())])
+			if not fresh.is_empty():
+				good += 1
+			print("[callout] t=%3d %s: \"%s\" -> %d new marker(s) %s" % [int(t), r.who, String(r.text).left(70), fresh.size(), ", ".join(PackedStringArray(desc))])
+		before = snap
+		if b.ended:
+			break
+	print("[callout] %d enemy callouts, %d with new markers" % [calls, good])
 	get_tree().quit()

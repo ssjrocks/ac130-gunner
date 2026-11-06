@@ -39,6 +39,7 @@ var follow_t := 0.0
 # they keep eyes on it; after losing sight it moves on the next sighting.
 var contacts := {}
 var next_contact := 1
+var last_wave_dist := 0.0
 
 
 func setup(c: Dictionary) -> void:
@@ -199,20 +200,48 @@ func spawn_wave(L: float, goal: Vector3, group: String, dirs := 2, dmin := 700.0
 			var stop: Vector3 = goal + (from2 - goal).normalized() * 320.0
 			o = {"order": "assault", "goal": stop, "cargo": _rand_inf(7), "on_arrive": "dismount", "data": {"goal": goal}}
 		by_dir[i % angs.size()].append(units.spawn(kind, 1, from2, group, o))
+	# every wave comes with a radio callout: mark each group where it is
+	var dsum := 0.0
+	var dn := 0
 	for list in by_dir:
-		add_contact(list)
+		var id := add_contact(list, "CONTACT", true)
+		if id > 0:
+			dsum += Vector2(contacts[id].pos.x - goal.x, contacts[id].pos.z - goal.z).length()
+			dn += 1
+	last_wave_dist = dsum / maxf(dn, 1)
 	return names
 
 
 ## Tags units as one enemy group that friendlies call in when they see it.
-func add_contact(list: Array, text := "CONTACT") -> void:
+## called: it is being reported over the radio right now, so mark it now.
+func add_contact(list: Array, text := "CONTACT", called := false) -> int:
 	if list.is_empty():
-		return
+		return 0
 	var id := next_contact
 	next_contact += 1
 	contacts[id] = {"text": text, "pos": null, "seen": false, "lost_t": 0.0}
 	for u in list:
 		u.data["contact"] = id
+	if called:
+		call_contact(id)
+	return id
+
+
+## A radio report of a group's position: the marker goes where the group is
+## now. Like a lost sighting, a later real sighting moves it again.
+func call_contact(id: int) -> void:
+	if not contacts.has(id):
+		return
+	var sum := Vector3.ZERO
+	var n := 0
+	for u in units.list:
+		if u.alive and u.data.get("contact", -1) == id:
+			sum += u.pos
+			n += 1
+	if n > 0:
+		contacts[id].pos = sum / n
+		contacts[id].seen = false
+		contacts[id].lost_t = 0.0
 
 
 func _wave_radio(names: Array, L: float, d: float) -> void:
@@ -222,6 +251,8 @@ func _wave_radio(names: Array, L: float, d: float) -> void:
 	elif L >= 2.0:
 		what = "Infantry and technicals"
 	var dirs := " and ".join(PackedStringArray(names))
+	if last_wave_dist > 0.0:
+		d = last_wave_dist
 	radio(cfg.get("jtac", "HAMMER 1-1"), "%s moving in from the %s, %s out!" % [what, dirs, meters(d)])
 
 
@@ -353,7 +384,7 @@ func _setup_defend() -> void:
 	add_obj("Protect friendly forces at %s" % site_label)
 	data.hold = add_obj("Hold until the QRF arrives")
 	var names := spawn_wave(level, site, "wave", 1, 500.0, 800.0)
-	radio(cfg.get("jtac", "HAMMER 1-1"), "Spectre, Hammer 1-1, troops in contact! Enemy to our %s, %s. We are marked with IR strobes." % [names[0], meters(650.0)])
+	radio(cfg.get("jtac", "HAMMER 1-1"), "Spectre, Hammer 1-1, troops in contact! Enemy to our %s, %s. We are marked with IR strobes." % [names[0], meters(last_wave_dist)])
 	wave_t = data.interval * 0.6
 
 
@@ -501,7 +532,7 @@ func _update_zombie(dt: float) -> void:
 		var horde: Array = []
 		for i in n:
 			horde.append(_zombie_one("z", 600.0, 900.0, true))
-		add_contact(horde, "HORDE")
+		add_contact(horde, "HORDE", true)
 		data.horde_ang = -999.0
 		radio("MERCY BASE", "Big horde coming in from the %s! Hundreds of them!" % compass(Vector3(sin(a), 0, -cos(a))))
 	timer_left = float(data.duration) - t
@@ -585,8 +616,8 @@ func _setup_escort() -> void:
 			units.spawn("technical", 1, ring_point(ap, 20.0, 60.0), grp2, {"order": "hold"})
 		if int(cfg.get("aa", 0)) > 0 and randf() < 0.4:
 			units.spawn("manpads", 1, ap, grp2, {"order": "hold"})
-		add_contact(units.members(grp2), "AMBUSH")
-		data.ambush.append({"pos": ap, "group": grp2, "on": false, "side": side})
+		var cid := add_contact(units.members(grp2), "AMBUSH")
+		data.ambush.append({"pos": ap, "group": grp2, "on": false, "side": side, "cid": cid})
 	data.ied = int(round(0.5 * pts.size())) if level >= 2.0 else -1
 	data.halt_t = 0.0
 	data.halted = false
@@ -625,6 +656,7 @@ func _update_escort(dt: float) -> void:
 	for a in data.ambush:
 		if not a.on and vip.pos.distance_to(a.pos) < 650.0:
 			a.on = true
+			call_contact(int(a.get("cid", 0)))
 			for u in units.members(a.group):
 				u.order = "assault"
 				u.goal = vip.pos + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
@@ -1040,8 +1072,9 @@ func _update_survival(dt: float) -> void:
 		data.aa_t = maxf(70.0, 160.0 - t / 10.0)
 		if t > 420.0 and randf() < 0.5:
 			var p := ring_point(Vector3.ZERO, 300.0, 2000.0)
-			units.spawn("sam", 1, p, "aa")
-			units.squad(_rand_inf(4), 1, p, 30.0, "aa", {"order": "hold"})
+			var site_units: Array = units.squad(_rand_inf(4), 1, p, 30.0, "aa", {"order": "hold"})
+			site_units.append(units.spawn("sam", 1, p, "aa"))
+			add_contact(site_units, "SAM", true)
 			radio("MAGIC", "Spectre, Magic, new SAM radar is up, %s of center." % compass(p))
 		else:
 			var p2 := ring_point(battle.gunship.orbit_center, 400.0, 1500.0)
