@@ -412,7 +412,10 @@ func dismount(u: U) -> void:
 	var goal: Vector3 = u.data.get("goal", u.goal)
 	for k in u.cargo:
 		var p: Vector3 = world.free_spot(Vector2(u.pos.x, u.pos.z), 8.0)
-		spawn(k, u.team, p, u.group, {"order": "assault", "goal": goal + Vector3(randf_range(-40, 40), 0, randf_range(-40, 40))})
+		var o := {"order": "assault", "goal": goal + Vector3(randf_range(-40, 40), 0, randf_range(-40, 40))}
+		if u.data.has("contact"):
+			o["data"] = {"contact": u.data.contact}
+		spawn(k, u.team, p, u.group, o)
 	u.cargo = []
 	u.order = "hold"
 

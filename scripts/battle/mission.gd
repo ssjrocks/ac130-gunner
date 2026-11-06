@@ -34,6 +34,11 @@ var failures := 0
 var casualty_t := 0.0
 var mark_t := 0.0
 var follow_t := 0.0
+# Enemy groups friendlies can report: id -> {text, pos, seen, lost_t}.
+# The marker goes where they first sight the group and stays there while
+# they keep eyes on it; after losing sight it moves on the next sighting.
+var contacts := {}
+var next_contact := 1
 
 
 func setup(c: Dictionary) -> void:
@@ -166,13 +171,16 @@ func spawn_wave(L: float, goal: Vector3, group: String, dirs := 2, dmin := 700.0
 		if n not in names:
 			names.append(n)
 	var aa := int(cfg.get("aa", 0))
+	var by_dir: Array = []
+	for k in angs.size():
+		by_dir.append([])
 	for s in squads:
 		var a: float = angs[s % angs.size()]
 		var from := ring_point(goal, dmin, dmax, a)
 		var kinds := _rand_inf(randi_range(5, 9))
 		if aa > 0 and randf() < 0.18 * aa:
 			kinds.append("manpads")
-		units.squad(kinds, 1, from, 18.0, group, {"order": "assault", "goal": goal})
+		by_dir[s % angs.size()].append_array(units.squad(kinds, 1, from, 18.0, group, {"order": "assault", "goal": goal}))
 	var vk: Array = []
 	for i in techs:
 		vk.append("technical")
@@ -190,8 +198,21 @@ func spawn_wave(L: float, goal: Vector3, group: String, dirs := 2, dmin := 700.0
 		if kind == "truck":
 			var stop: Vector3 = goal + (from2 - goal).normalized() * 320.0
 			o = {"order": "assault", "goal": stop, "cargo": _rand_inf(7), "on_arrive": "dismount", "data": {"goal": goal}}
-		units.spawn(kind, 1, from2, group, o)
+		by_dir[i % angs.size()].append(units.spawn(kind, 1, from2, group, o))
+	for list in by_dir:
+		add_contact(list)
 	return names
+
+
+## Tags units as one enemy group that friendlies call in when they see it.
+func add_contact(list: Array, text := "CONTACT") -> void:
+	if list.is_empty():
+		return
+	var id := next_contact
+	next_contact += 1
+	contacts[id] = {"text": text, "pos": null, "seen": false, "lost_t": 0.0}
+	for u in list:
+		u.data["contact"] = id
 
 
 func _wave_radio(names: Array, L: float, d: float) -> void:
@@ -230,11 +251,12 @@ func _spawn_aa(aa: int) -> void:
 		return
 	for i in int(round(aa * 1.5 * enemy_mult)):
 		var p := ring_point(focus, 500.0, 1700.0)
-		units.squad(["manpads", "rifle", "rifle"], 1, p, 10.0, "aa", {"order": "hold"})
+		add_contact(units.squad(["manpads", "rifle", "rifle"], 1, p, 10.0, "aa", {"order": "hold"}))
 	for i in maxi(0, aa - 1):
 		var p2 := ring_point(focus, 700.0, 1600.0)
-		units.spawn("zu23", 1, p2, "aa")
-		units.squad(["rifle", "rifle", "emg"], 1, p2, 14.0, "aa", {"order": "hold"})
+		var team: Array = units.squad(["rifle", "rifle", "emg"], 1, p2, 14.0, "aa", {"order": "hold"})
+		team.append(units.spawn("zu23", 1, p2, "aa"))
+		add_contact(team)
 
 
 func _friendly_squad(center: Vector3, n: int, spread: float, group: String, vehicles := 0) -> void:
@@ -426,11 +448,12 @@ func _update_laststand(dt: float) -> void:
 
 # --- Zombies ----------------------------------------------------------------
 
-func _zombie_one(group: String, dmin: float, dmax: float, brutes: bool) -> void:
+func _zombie_one(group: String, dmin: float, dmax: float, brutes: bool):
 	var p := ring_point(site, dmin, dmax, data.get("horde_ang", -999.0))
 	var kind := "brute" if brutes and randf() < 0.06 else "zombie"
 	var u = units.spawn(kind, 1, p, group, {"order": "assault", "goal": site + Vector3(randf_range(-15, 15), 0, randf_range(-15, 15))})
 	u.speed_mul = randf_range(0.7, 1.3)
+	return u
 
 
 func _setup_zombie() -> void:
@@ -475,8 +498,10 @@ func _update_zombie(dt: float) -> void:
 		var a := randf() * TAU
 		data.horde_ang = a
 		var n := int((60 + t / 4.0) * enemy_mult)
+		var horde: Array = []
 		for i in n:
-			_zombie_one("z", 600.0, 900.0, true)
+			horde.append(_zombie_one("z", 600.0, 900.0, true))
+		add_contact(horde, "HORDE")
 		data.horde_ang = -999.0
 		radio("MERCY BASE", "Big horde coming in from the %s! Hundreds of them!" % compass(Vector3(sin(a), 0, -cos(a))))
 	timer_left = float(data.duration) - t
@@ -560,6 +585,7 @@ func _setup_escort() -> void:
 			units.spawn("technical", 1, ring_point(ap, 20.0, 60.0), grp2, {"order": "hold"})
 		if int(cfg.get("aa", 0)) > 0 and randf() < 0.4:
 			units.spawn("manpads", 1, ap, grp2, {"order": "hold"})
+		add_contact(units.members(grp2), "AMBUSH")
 		data.ambush.append({"pos": ap, "group": grp2, "on": false, "side": side})
 	data.ied = int(round(0.5 * pts.size())) if level >= 2.0 else -1
 	data.halt_t = 0.0
@@ -712,6 +738,7 @@ func _setup_strike() -> void:
 	units.squad(_rand_inf(int(10 * enemy_mult)), 1, tp, 30.0, "guards", {"order": "hold"})
 	for i in 2:
 		units.spawn("technical", 1, world.free_spot(Vector2(tp.x, tp.z), 40.0), "guards", {"order": "hold"})
+	add_contact(units.members("guards"))
 	units.squad(["sf", "sf", "sf", "sf"], 0, op, 6.0, "sf", {"order": "hold"})
 	battle.sf_laser = {"from": units.members("sf")[0], "to": hvt}
 	data.window = float(cfg.get("window", 150.0))
@@ -1086,8 +1113,46 @@ func on_escape(u) -> void:
 	units.remove_unit(u)
 
 
+## A friendly's current target is always one it has line of sight to, so a
+## group is in sight while any friendly is engaging one of its members.
+func _update_contacts(dt: float) -> void:
+	var alive := {}
+	var sighted := {}
+	for u in units.list:
+		if not u.alive:
+			continue
+		if u.data.has("contact"):
+			alive[u.data.contact] = true
+		if u.team == 0 and u.target != null and u.target.alive and u.target.data.has("contact"):
+			var id: int = u.target.data.contact
+			if sighted.has(id):
+				sighted[id][0] += u.target.pos
+				sighted[id][1] += 1
+			else:
+				sighted[id] = [u.target.pos, 1]
+	for id in contacts.keys():
+		if not alive.has(id):
+			contacts.erase(id)
+			continue
+		var c: Dictionary = contacts[id]
+		if sighted.has(id):
+			if c.pos == null or not c.seen:
+				c.pos = sighted[id][0] / float(sighted[id][1])
+			c.seen = true
+			c.lost_t = 0.0
+		elif c.seen:
+			# brief gaps (a target dies, a unit re-picks) don't count as lost
+			c.lost_t = float(c.lost_t) + dt
+			if float(c.lost_t) > 2.0:
+				c.seen = false
+		if c.pos != null:
+			markers.append({"pos": c.pos, "text": c.text, "kind": "enemy", "id": id})
+
+
 func _update_markers() -> void:
 	markers.clear()
+	if not contacts.is_empty():
+		_update_contacts(0.2)
 	match type:
 		"cas", "laststand", "zombie":
 			markers.append({"pos": site, "text": site_label, "kind": "friend"})

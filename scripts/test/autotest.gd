@@ -48,6 +48,14 @@ func begin(s: String) -> void:
 		f.close()
 		get_tree().quit()
 		return
+	if parts[0] == "resight":
+		flow_mode = true
+		_resight_test()
+		return
+	if parts[0] == "markers":
+		flow_mode = true
+		_markers_test(parts[1])
+		return
 	if parts[0] == "shake":
 		flow_mode = true
 		_shake_test()
@@ -546,4 +554,130 @@ func _shake_test() -> void:
 			prev = sp
 		jumps.sort()
 		print("[shake] %-7s ground point jumps per frame px: median %.2f  p90 %.2f  max %.2f   drift over 1.5 s %.1f px" % [phase, jumps[jumps.size() / 2], jumps[int(jumps.size() * 0.9)], jumps[jumps.size() - 1], drift])
+	get_tree().quit()
+
+
+## Sighting markers: none before friendlies see a group; while they keep
+## sight the marker stays where it was placed even as the group moves; it
+## only moves on a fresh sighting after sight was lost.
+func _markers_test(type: String) -> void:
+	Game.settings.loadout = "all"
+	Game.start_mission(Missions.skirmish_cfg("kharim", type, "day", 1))
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.gunship.bot = false
+	b.gunship.plane_dmg = 0.0
+	var last := {}
+	var placed := 0
+	var moved_on_resight := 0
+	var bad := 0
+	var held_while_group_moved := 0.0
+	var anchor_centre := {}
+	for step in 9000:
+		await get_tree().process_frame
+		for fu in b.units.list:
+			if fu.team == 0:
+				fu.hp = 1.0e6
+		var mi = b.mission
+		for id in mi.contacts:
+			var c: Dictionary = mi.contacts[id]
+			var was = last.get(id)
+			if c.pos != null and (was == null or was.pos == null):
+				placed += 1
+				if not c.seen:
+					bad += 1
+			elif c.pos != null and was != null and c.pos != was.pos:
+				if was.seen:
+					bad += 1
+					print("[markers] WRONG: moved while still in sight")
+				else:
+					moved_on_resight += 1
+			if c.pos != null and c.seen:
+				var sum := Vector3.ZERO
+				var n := 0
+				for u in b.units.list:
+					if u.alive and u.data.get("contact", -1) == id:
+						sum += u.pos
+						n += 1
+				if n > 0:
+					if not anchor_centre.has(id) or (was != null and not was.seen):
+						anchor_centre[id] = sum / n
+					held_while_group_moved = maxf(held_while_group_moved, (sum / n).distance_to(anchor_centre[id]))
+			last[id] = {"pos": c.pos, "seen": c.seen}
+	print("[markers] %s: %d markers placed on sighting, %d moved on re-sighting, %d wrong; while in sight a group moved up to %.0f m and its marker stayed put" % [type, placed, moved_on_resight, bad, held_while_group_moved])
+	get_tree().quit()
+
+
+## Staged sighting: seen at A -> marker at A; hidden behind terrain -> marker
+## stays at A; seen again at B -> marker moves to B.
+func _resight_test() -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.skirmish_cfg("ridge", "cas", "day", 1)
+	cfg["civ"] = 0.0
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	b.gunship.bot = false
+	for u in b.units.list.duplicate():
+		b.units.remove_unit(u)
+	var w = b.world
+	# a friendly, a visible spot A, a hidden spot H and another visible spot B
+	var F := Vector3.ZERO
+	var A := Vector3.ZERO
+	var H := Vector3.ZERO
+	var B := Vector3.ZERO
+	var found := false
+	for tries in 20000:
+		var f2 := Vector2(randf_range(-1800, 1800), randf_range(-1800, 1800))
+		if not w.ground_ok(f2):
+			continue
+		F = w.to3(f2)
+		var pts: Array = []
+		for k in 3:
+			var a := randf() * TAU
+			var p2 := f2 + Vector2(cos(a), sin(a)) * randf_range(150.0, 300.0)
+			pts.append(w.to3(p2) if w.ground_ok(p2) else Vector3.INF)
+		if Vector3.INF in pts:
+			continue
+		var vis := func(p: Vector3) -> bool: return w.los(F + Vector3(0, 1.6, 0), p + Vector3(0, 1.0, 0))
+		if vis.call(pts[0]) and not vis.call(pts[1]) and vis.call(pts[2]) and pts[0].distance_to(pts[2]) > 80.0:
+			A = pts[0]
+			H = pts[1]
+			B = pts[2]
+			found = true
+			break
+	if not found:
+		print("[resight] no suitable spots")
+		get_tree().quit()
+		return
+	var f = b.units.spawn("soldier", 0, F, "f", {"order": "hold"})
+	var es: Array = [b.units.spawn("rifle", 1, A, "e", {"order": "hold"}), b.units.spawn("rifle", 1, A + Vector3(3, 0, 0), "e", {"order": "hold"})]
+	for u in es + [f]:
+		u.hp = 1.0e6
+		u.halted = true
+	b.mission.add_contact(es)
+	var id: int = b.mission.next_contact - 1
+	var c: Dictionary = b.mission.contacts[id]
+	var report := func(stage: String, want: Vector3) -> void:
+		var ok: bool = c.pos != null and c.pos.distance_to(want) < 10.0
+		print("[resight] %-28s marker %s  (%.0f m from %s)  %s" % [stage, "none" if c.pos == null else str(c.pos.round()), -1.0 if c.pos == null else c.pos.distance_to(want), "expected spot", "OK" if ok else "WRONG"])
+	for i in 150:
+		b.mission._update_contacts(1.0 / 30.0)
+		await get_tree().process_frame
+	report.call("seen at A", A)
+	for u in es:
+		u.pos = w.to3(Vector2(H.x, H.z))
+	for i in 240:
+		b.mission._update_contacts(1.0 / 30.0)
+		await get_tree().process_frame
+	report.call("hidden behind terrain", A)
+	for u in es:
+		u.pos = w.to3(Vector2(B.x, B.z))
+	for i in 150:
+		b.mission._update_contacts(1.0 / 30.0)
+		await get_tree().process_frame
+	report.call("seen again at B", B)
 	get_tree().quit()
