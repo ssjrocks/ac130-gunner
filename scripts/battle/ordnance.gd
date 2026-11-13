@@ -22,6 +22,8 @@ func add_shell(from: Vector3, to: Vector3, wid: String, def: Dictionary, bidx: i
 	var tt := dist / float(def.speed)
 	shell_n += 1
 	var s := {"a": from, "b": to, "t": 0.0, "T": tt, "wid": wid, "def": def, "bidx": bidx, "water": water, "n": null}
+	if battle.recorder and shell_n % int(def.get("tracer", 1)) == 0:
+		battle.recorder.shell(from, to, tt, wid)
 	if shell_n % int(def.get("tracer", 1)) == 0:
 		s.n = battle.effects.take("beam")
 		var col := Color(2.0, 0.7, 0.35) if wid == "w_762" else Color(2.0, 1.4, 0.7)
@@ -82,6 +84,8 @@ func ground_shot(from: Vector3, to: Vector3, shooter) -> void:
 	var def := {"dmg": shooter.d.dmg, "radius": shooter.d.explosive, "pen": shooter.d.get("pen", 2), "fx": "medium"}
 	var g := {"a": from, "b": to, "t": 0.0, "T": from.distance_to(to) / spd, "def": def, "tank": tank, "trail": 0.0}
 	ground.append(g)
+	if battle.recorder:
+		battle.recorder.ground_shot(from, to, g.T, tank)
 	if battle.near_view(from):
 		battle.effects.muzzle(from, 2.5 if tank else 1.2)
 		if not tank:
@@ -279,6 +283,8 @@ func aaa_burst(from: Vector3, slant: float) -> void:
 		var reach := minf(slant, 2600.0) * randf_range(0.75, 1.0)
 		var end := from + (dir + jitter).normalized() * reach
 		battle.effects.tracer(from, end, Color(2.0, 1.2, 0.4), 950.0)
+		if battle.recorder:
+			battle.recorder.tracer(from, end)
 		if reach >= slant * 0.9:
 			battle.effects.impact(end, "flak", false)
 	var p := 0.35 * (1.0 - slant / 3300.0)

@@ -1171,6 +1171,8 @@ func _collapse(bi: int) -> void:
 	b.win = false
 	_update_building(bi)
 	if battle:
+		if battle.get("recorder"):
+			battle.recorder.building(bi)
 		battle.effects.collapse(b.c, maxf(b.w, b.d), h)
 
 

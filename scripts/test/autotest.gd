@@ -60,6 +60,14 @@ func begin(s: String) -> void:
 		flow_mode = true
 		_illum_test()
 		return
+	if parts[0] == "recsupport":
+		flow_mode = true
+		_recsupport_test()
+		return
+	if parts[0] == "replay":
+		flow_mode = true
+		_replay_test(parts[1] if parts.size() > 1 else "latest", parts.size() > 2 and parts[2] == "support")
+		return
 	if parts[0] == "gfx":
 		flow_mode = true
 		_gfx_test(parts[1] if parts.size() > 1 else "kharim", parts[2] if parts.size() > 2 else "day")
@@ -267,7 +275,7 @@ func _menu_shots() -> void:
 		Game.main.show_menu("title")
 		return
 	DirAccess.make_dir_recursive_absolute(shots_dir)
-	for sname in ["title", "campaign", "skirmish", "laststand", "career", "settings", "controls"]:
+	for sname in ["title", "campaign", "skirmish", "laststand", "career", "settings", "controls", "replays", "credits"]:
 		Game.main.show_menu(sname)
 		for i in 6:
 			await get_tree().process_frame
@@ -1303,3 +1311,127 @@ func _thermal_test() -> void:
 		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("thermal_%d.png" % m))
 	print("[thermal] saved")
 	get_tree().quit()
+
+
+## Plays the newest (or a given) replay: screenshots from each camera at a
+## few times, checks units move and a backward seek restores buildings.
+func _replay_test(which: String, support := false) -> void:
+	var Rec := load("res://scripts/battle/recorder.gd")
+	var files: Array = Rec.list()
+	var fp: String = files[0] if which == "latest" and not files.is_empty() else which
+	print("[replay] file ", fp, " size ", FileAccess.get_file_as_bytes(fp).size() / 1024, " KB")
+	Game.main.start_replay(fp)
+	var r = Game.main.current
+	while not r.built:
+		await get_tree().process_frame
+	var d: Dictionary = r.data
+	var keys := 0
+	for id in d.units:
+		keys += d.units[id].track.size() / 7
+	print("[replay] length %.0f s, %d units, %d keys, %d events, %d frames, %d buildings fell" % [r.length, d.units.size(), keys,
+		r.ev.size(), r.frame_t.size(), _count_ev(r.ev, 4)])
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	var plan := [[0.25, 0, "free"], [0.25, 1, "sensor"], [0.25, 2, "chase"], [0.6, 0, "free_late"], [0.9, 1, "sensor_late"], [0.9, 0, "free_wide"]]
+	r._seek(r.length)
+	print("[replay] after seek to end: ev_i %d of %d, fallen %d" % [r.ev_i, r.ev.size(), r.saved_bld.size()])
+	if support:
+		# times in seconds: missiles inbound, the A-10 pass, the flare burning
+		plan = [[-10.0, 0, "s_missile"], [-17.0, 0, "s_a10"], [-19.5, 2, "s_chase"], [-30.0, 1, "s_sensor_nv"], [-30.0, 0, "s_illum_wide"]]
+	for st in plan:
+		r._seek(r.length * st[0] if st[0] >= 0.0 else -st[0])
+		r.cam_mode = st[1]
+		r._cam_mode_changed()
+		if st[1] == 0:
+			var off := Vector3(-60, 35, 60) if not st[2].ends_with("wide") else Vector3(-900, 700, 900)
+			if st[2] == "s_missile" or st[2] == "s_a10":
+				off = Vector3(-300, 150, 300)
+			r.cam.global_position = r.aim + off
+			r._look_at(r.aim)
+		if st[2] == "s_a10" or st[2] == "s_missile":
+			await _frames(2)
+			var want: int = 5 if st[2] == "s_a10" else 1
+			for rid in r.objects:
+				var ob: Dictionary = r.objects[rid]
+				if ob.type == want and ob.node:
+					r.paused = true
+					var op: Vector3 = ob.node.global_position
+					r.cam.global_position = op + Vector3(-40, 15, 40)
+					r._look_at(op)
+					print("[replay] %s object at %s" % [st[2], op])
+		var moved := _unit_positions(r)
+		await _wait_real(1.5)
+		var moved2 := _unit_positions(r)
+		var n := 0
+		for id in moved:
+			if moved2.has(id) and moved[id].distance_to(moved2[id]) > 0.5:
+				n += 1
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("replay_%s.png" % st[2]))
+		r.paused = false
+		print("[replay] %s at %.0f s: %d units visible, %d moved in 1.5 s, %d objects" % [st[2], r.rt, moved.size(), n, r.objects.size()])
+	var fell: int = r.saved_bld.size()
+	var top_fallen := -1.0
+	if fell > 0:
+		top_fallen = r.world.buildings[r.saved_bld.keys()[0]].top
+	var first: int = r.saved_bld.keys()[0] if fell > 0 else -1
+	r._seek(0.0)
+	var top_back: float = r.world.buildings[first].top if first >= 0 else -1.0
+	print("[replay] seek back: %d fallen buildings before, %d after; first one's top %.1f -> %.1f, alive %s" % [fell, r.saved_bld.size(),
+		top_fallen, top_back, str(r.world.buildings[first].alive) if first >= 0 else "-"])
+	r._exit()
+	await _frames(3)
+	get_tree().quit()
+
+
+func _count_ev(ev: PackedFloat32Array, code: int) -> int:
+	var Rec := load("res://scripts/battle/recorder.gd")
+	var i := 0
+	var n := 0
+	while i < ev.size():
+		if int(ev[i + 1]) == code:
+			n += 1
+		i += 2 + int(Rec.EV_ARGS.get(int(ev[i + 1]), 0))
+	return n
+
+
+func _unit_positions(r) -> Dictionary:
+	var out := {}
+	for id in r.units:
+		var mi: MeshInstance3D = r.units[id].node
+		if mi.visible:
+			out[id] = mi.global_position
+	return out
+
+
+func _wait_real(s: float) -> void:
+	var end := Time.get_ticks_msec() + int(s * 1000.0)
+	while Time.get_ticks_msec() < end:
+		await get_tree().process_frame
+
+
+## Records a short night sortie with an A-10 run, a Hellfire, a show of force
+## and an illumination round, then ends it normally so the replay is saved.
+func _recsupport_test() -> void:
+	Game.record_test = true
+	Game.settings.loadout = "all"
+	Game.start_mission(Missions.skirmish_cfg("kharim", "cas", "night", 1))
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	var g = b.gunship
+	await _wait_s(4.0)
+	var Data := load("res://scripts/data/data.gd")
+	var p: Vector3 = g.aim_point
+	b.support.gun_run(p, 1.2, Data.SUPPORT["s_a10"])
+	b.support.show_of_force(p + Vector3(300, 0, 0), 2.6, Data.SUPPORT["s_sof"])
+	var h: Dictionary = Data.SUPPORT["s_hellfire"]
+	b.ordnance.launch_guided("missile", h, p + Vector3(3500, 4500, 0), p + Vector3(40, 0, 40), float(h.tot), h.guide, true, "s_hellfire")
+	var il: Dictionary = Data.SUPPORT["s_illum"]
+	b.ordnance.launch_guided("illum", il, p + Vector3(0, 6500, 3000), p, float(il.tot), il.guide, true, "s_illum")
+	var near: Array = b.world.buildings_near(Vector2(p.x, p.z), 600.0)
+	for k in mini(3, near.size()):
+		b.world._collapse(near[k])
+	print("[recsupport] calls at %.0f s, %d buildings dropped" % [b.time, mini(3, near.size())])
+	await _wait_s(40.0)
+	b.mission.lose("RECORDING TEST")
+

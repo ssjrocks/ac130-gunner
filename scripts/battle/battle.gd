@@ -15,6 +15,7 @@ const Maps := preload("res://scripts/data/maps.gd")
 const Data := preload("res://scripts/data/data.gd")
 const UiTheme := preload("res://scripts/ui/theme.gd")
 const Support := preload("res://scripts/battle/support.gd")
+const Recorder := preload("res://scripts/battle/recorder.gd")
 
 var cfg: Dictionary
 var world
@@ -27,6 +28,8 @@ var hud
 var post
 var pause_menu
 var support
+var recorder = null
+var replay_path := ""
 var stats := {"shots": 0, "hits": 0, "kills": 0, "score": 0, "friendly_kills": 0, "civ_kills": 0,
 	"inf": 0, "veh": 0, "zombies": 0}
 var sf_laser := {}
@@ -76,6 +79,11 @@ func _build() -> void:
 	effects = Effects.new()
 	effects.battle = self
 	add_child(effects)
+	if Game.autotest == "" or Game.record_test:
+		recorder = Recorder.new()
+		recorder.battle = self
+		add_child(recorder)
+		effects.recorder = recorder
 	units = Units.new()
 	units.battle = self
 	add_child(units)
@@ -124,6 +132,8 @@ func set_view_mode(m: int) -> void:
 
 
 func radio(who: String, text: String) -> void:
+	if recorder:
+		recorder.note("radio", [who, text])
 	if hud:
 		hud.radio(who, text)
 	Sfx.play("beep", -12.0)
@@ -253,6 +263,9 @@ func _finish() -> void:
 		"cfg": cfg, "state": mission.state, "text": mission.result_text, "stats": stats.duplicate(),
 		"score": score, "time": mission.t, "wave": mission.wave, "bonus": mission.score_bonus,
 	}
+	if recorder:
+		replay_path = recorder.save(result)
+		result["replay"] = replay_path
 	Sfx.stop_all()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	Game.finish_mission(result)

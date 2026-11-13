@@ -57,6 +57,7 @@ class U extends RefCounted:
 	var boarded := false
 	var node: MeshInstance3D
 	var extra: Node3D
+	var mesh_id := ""
 	var order := "hold"
 	var goal := Vector3.ZERO
 	var home := Vector3.ZERO
@@ -171,7 +172,8 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 	u.think_t = randf() * 0.8
 	u.aa_t = randf_range(20.0, 20.0 + float(u.d.get("aa_cd", 10.0)))
 	var mi := MeshInstance3D.new()
-	var mesh_id := mesh_id_for(kind, team, opts)
+	var mesh_id: String = opts.get("mesh_id", mesh_id_for(kind, team, opts))
+	u.mesh_id = mesh_id
 	mi.mesh = Meshes.get_mesh(mesh_id)
 	mi.material_override = Meshes.get_material(mesh_id, Mats.solid() if u.veh else Mats.unit())
 	mi.layers = 2
@@ -194,9 +196,9 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 		mi.add_child(s)
 		u.extra = s
 	if not u.veh and Meshes.is_model(mesh_id):
-		_arm(mi, mesh_id, kind)
+		arm(mi, mesh_id, kind)
 	if kind == "heli":
-		u.extra = _rotors(mi, mesh_id)
+		u.extra = rotors(mi, mesh_id)
 	u.order = opts.get("order", "hold")
 	u.goal = opts.get("goal", u.pos)
 	u.path = opts.get("path", [])
@@ -212,7 +214,7 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 
 ## Gives an imported person the weapon its kind carries, held in front
 ## between the hands (rocket tubes on the shoulder).
-func _arm(mi: MeshInstance3D, mesh_id: String, kind: String) -> void:
+static func arm(mi: MeshInstance3D, mesh_id: String, kind: String) -> void:
 	var w := ""
 	match kind:
 		"soldier", "sf", "rifle", "survivor":
@@ -240,7 +242,7 @@ func _arm(mi: MeshInstance3D, mesh_id: String, kind: String) -> void:
 
 ## Spinning rotors: the model's own rotor parts, or the plain disc. Returns
 ## a holder whose children each carry their spin axis.
-func _rotors(mi: MeshInstance3D, mesh_id: String) -> Node3D:
+static func rotors(mi: MeshInstance3D, mesh_id: String) -> Node3D:
 	var holder := Node3D.new()
 	mi.add_child(holder)
 	var model: String = Models.lookup(mesh_id)[0]
@@ -773,13 +775,16 @@ func _fight(u: U, dt: float) -> void:
 		battle.ordnance.ground_shot(muzzle, t.pos + Vector3(0, 0.6, 0) + miss, u)
 	else:
 		var hit := randf() < p
-		if vis and randf() < (0.6 if u.veh else 0.45):
+		var rec = battle.get("recorder")
+		if (vis or rec) and randf() < (0.6 if u.veh else 0.45):
 			var aim := t.pos + Vector3(0, 1.0, 0)
 			if not hit:
 				aim += Vector3(randf_range(-1, 1), randf_range(-0.5, 1.5), randf_range(-1, 1)) * (2.0 + dist * 0.02)
-			var col := Color(2.0, 0.45, 0.25) if u.team == 0 else Color(0.6, 2.0, 0.45)
-			battle.effects.tracer(muzzle, aim, col, 800.0)
-			battle.effects.muzzle(muzzle, 0.5 if not u.veh else 0.8)
+			if rec:
+				rec.shot(muzzle, aim, u.team, u.veh)
+			if vis:
+				battle.effects.tracer(muzzle, aim, Color(2.0, 0.45, 0.25) if u.team == 0 else Color(0.6, 2.0, 0.45), 800.0)
+				battle.effects.muzzle(muzzle, 0.5 if not u.veh else 0.8)
 		if hit:
 			var dam := float(u.d.dmg) * armor_mul(int(u.d.get("pen", 0)), int(t.d.get("armor", 0)))
 			hurt(t, dam, false, "")

@@ -3,6 +3,7 @@ extends Node
 
 const Menus := preload("res://scripts/ui/menus.gd")
 const Battle := preload("res://scripts/battle/battle.gd")
+const Replay := preload("res://scripts/replay/replay.gd")
 const Autotest := preload("res://scripts/test/autotest.gd")
 
 var current: Node
@@ -38,3 +39,10 @@ func start_battle(cfg: Dictionary) -> void:
 	var b := Battle.new(cfg)
 	add_child(b)
 	current = b
+
+
+func start_replay(path: String) -> void:
+	_clear()
+	var r := Replay.new(path)
+	add_child(r)
+	current = r

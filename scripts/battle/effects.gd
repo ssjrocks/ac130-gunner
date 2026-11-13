@@ -17,6 +17,8 @@ var decals: Array = []
 var scorch_tex: ImageTexture
 var mpp_k := 0.001       # metres per pixel per metre of distance
 var cam_pos := Vector3.ZERO
+var recorder = null          # the mission recorder, while one runs
+var _depth := 0              # >0 while effects call themselves (not recorded)
 
 
 func _ready() -> void:
@@ -80,6 +82,8 @@ func set_beam(n: MeshInstance3D, a: Vector3, b: Vector3, width: float, min_px: f
 
 
 func spawn(kind: String, p: Vector3, opts: Dictionary) -> void:
+	if recorder and _depth == 0:
+		recorder.note("spawn", [kind, p, opts])
 	if parts.size() >= MAX_PARTS:
 		return
 	var n := take(kind)
@@ -139,6 +143,14 @@ func _process(dt: float) -> void:
 # --- Emitters (fires, smoke columns) ---------------------------------------
 
 func fire(p: Vector3, size: float, life: float, smoke := true) -> void:
+	if recorder and _depth == 0:
+		recorder.fire(p, size, life, smoke)
+	_depth += 1
+	_fire(p, size, life, smoke)
+	_depth -= 1
+
+
+func _fire(p: Vector3, size: float, life: float, smoke := true) -> void:
 	emitters.append({"p": p, "t": 0.0, "life": life, "size": size, "acc": 0.0, "smoke": smoke})
 
 
@@ -239,6 +251,14 @@ func _dust() -> Color:
 
 
 func impact(p: Vector3, fx: String, water: bool) -> void:
+	if recorder and _depth == 0:
+		recorder.impact(p, fx, water)
+	_depth += 1
+	_impact(p, fx, water)
+	_depth -= 1
+
+
+func _impact(p: Vector3, fx: String, water: bool) -> void:
 	var dc := Color(0.85, 0.9, 0.95) if water else _dust()
 	var night: float = battle.world.night if battle else 0.0
 	match fx:
@@ -345,6 +365,14 @@ func _update_tracers(dt: float) -> void:
 
 
 func vehicle_destroyed(p: Vector3, big: bool) -> void:
+	if recorder and _depth == 0:
+		recorder.vehicle_destroyed(p, big)
+	_depth += 1
+	_vehicle_destroyed(p, big)
+	_depth -= 1
+
+
+func _vehicle_destroyed(p: Vector3, big: bool) -> void:
 	impact(p, "large" if big else "medium", false)
 	fire(p + Vector3(0, 1.0, 0), 3.5 if big else 2.2, randf_range(50.0, 110.0))
 

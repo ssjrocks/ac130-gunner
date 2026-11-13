@@ -7,6 +7,7 @@ const Data := preload("res://scripts/data/data.gd")
 const Missions := preload("res://scripts/data/missions.gd")
 const Maps := preload("res://scripts/data/maps.gd")
 const Credits := preload("res://scripts/data/credits.gd")
+const Recorder := preload("res://scripts/battle/recorder.gd")
 
 const BG_SHADER := """
 shader_type canvas_item;
@@ -80,6 +81,8 @@ func show_screen(sname: String, arg = null) -> void:
 			_controls()
 		"credits":
 			_credits()
+		"replays":
+			_replays()
 		"debrief":
 			_debrief(arg if arg != null else Game.last_result)
 		_:
@@ -211,6 +214,7 @@ func _title() -> void:
 	_button(col, "SURVIVAL", func(): show_screen("survival"))
 	_button(col, "LAST STAND", func(): show_screen("laststand"))
 	_button(col, "CAREER", func(): show_screen("career"))
+	_button(col, "REPLAYS", func(): show_screen("replays"))
 	_button(col, "SETTINGS", func(): show_screen("settings"))
 	_button(col, "CONTROLS", func(): show_screen("controls"))
 	_button(col, "CREDITS", func(): show_screen("credits"))
@@ -586,6 +590,37 @@ func _controls() -> void:
 	_label(v, "\nRounds take several seconds to reach the ground from 10,000 ft: lead moving targets. Higher altitude keeps you safer from missiles but spreads your rounds. Friendly troops blink with IR strobes in night vision.", 17, UiTheme.DIM).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 
+func _replays() -> void:
+	var v := _vbox(body, 8)
+	_header(v, "REPLAYS")
+	var files := Recorder.list()
+	if files.is_empty():
+		_label(v, "No replays yet. Every sortie you finish is recorded; the last %d are kept." % Recorder.KEEP, 20, UiTheme.DIM)
+		return
+	_label(v, "Watch any of your last %d sorties from any angle: fly a free camera, ride the gunship's sensor or chase the gunship." % Recorder.KEEP, 18, UiTheme.DIM).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 6)
+	sc.add_child(list)
+	for fp in files:
+		var s := Recorder.summary(fp)
+		var res: Dictionary = s.get("result", {})
+		var ln := int(s.get("length", 0.0))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 16)
+		list.add_child(row)
+		var name := "%s   %s   %02d:%02d   %s" % [String(s.get("date", "")).replace("T", " ").left(16), String(s.get("name", fp.get_file())).to_upper(),
+			ln / 60, ln % 60, String(res.get("state", "")).to_upper()]
+		_button(row, "  " + name, func(): Game.main.start_replay(fp), 900)
+		_button(row, "DELETE", func():
+			DirAccess.remove_absolute(fp)
+			DirAccess.remove_absolute(fp + ".json")
+			show_screen("replays"), 140)
+
+
 func _credits() -> void:
 	var v := _vbox(body, 8)
 	_header(v, "CREDITS")
@@ -649,4 +684,6 @@ func _debrief(r: Dictionary) -> void:
 	else:
 		_button(h, "CONTINUE", func(): show_screen("title"), 240)
 	_button(h, "RETRY", func(): Game.start_mission(cfg), 200)
+	if String(r.get("replay", "")) != "":
+		_button(h, "WATCH REPLAY", func(): Game.main.start_replay(r.replay), 240)
 	_button(h, "MAIN MENU", func(): show_screen("title"), 220)

@@ -18,6 +18,7 @@ var view_mode := 0
 var autotest := ""
 var autotest_secs := 60.0
 var no_flock := false        # test flag: --noflock turns infected grouping off
+var record_test := false     # test flag: --record keeps the mission recorder on
 
 
 func _ready() -> void:
@@ -30,6 +31,8 @@ func _ready() -> void:
 			autotest = a.substr(11)
 		elif a == "--noflock":
 			no_flock = true
+		elif a == "--record":
+			record_test = true
 		elif a.begins_with("--secs="):
 			autotest_secs = float(a.substr(7))
 	_setup_input()
