@@ -56,6 +56,16 @@ var bot := false
 var bot_t := 0.0
 var time := 0.0
 var mg_on := false
+# Supercomputer target prediction: off at the start of every sortie. Heat
+# builds while it predicts (100% after 30 s) and bleeds off at a third of
+# that rate, so it runs 30 s in every 2 min; at 100% it shuts down for 60 s.
+const PRED_HEAT_RATE := 100.0 / 30.0
+const PRED_COOL_RATE := 100.0 / 90.0
+const PRED_SHUTDOWN := 60.0
+var predict_on := false
+var pred_heat := 0.0
+var pred_shutdown := 0.0
+var predictions: Array = []
 
 
 func setup(cfg: Dictionary, loadout: Array) -> void:
@@ -199,6 +209,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 		_call_support()
 	if ev.is_action_pressed("map"):
 		battle.hud.toggle_map()
+	if ev.is_action_pressed("predictor"):
+		predict_on = not predict_on
+		Sfx.play("click", -6.0)
 	if ev.is_action_pressed("iff"):
 		Game.settings.iff = not Game.settings.get("iff", true)
 	if ev.is_action_pressed("help"):
@@ -270,6 +283,7 @@ func _process(dt: float) -> void:
 	_update_camera(dt)
 	if not battle.ended:
 		_weapons(dt)
+	_predict(dt)
 	flare_cd -= dt
 	if auto_flares and flare_cd <= 0.0:
 		for m in battle.ordnance.threats:
@@ -360,6 +374,50 @@ func _clamp_gimbal() -> void:
 		var y := look_dir.y
 		var hl := sqrt(maxf(0.0, 1.0 - y * y))
 		look_dir = Vector3(nh.x * hl, y, nh.z * hl)
+
+
+## Seconds until something fired now with the selected weapon (or support
+## call) lands at p.
+func impact_time(p: Vector3) -> float:
+	var origin := global_position + left * 4.0 + Vector3(0, -2.5, 0)
+	if support_mode and not supports.is_empty():
+		return float(supports[ssel].def.tot)
+	var def: Dictionary = weapon().def
+	if def.has("guided"):
+		if def.guided == "missile":
+			return origin.distance_to(p) / float(def.flight_speed)
+		return float(def.tot)
+	return origin.distance_to(p) / float(def.speed)
+
+
+func _predict(dt: float) -> void:
+	predictions.clear()
+	if pred_shutdown > 0.0:
+		pred_shutdown -= dt
+		pred_heat = 100.0 * maxf(pred_shutdown, 0.0) / PRED_SHUTDOWN
+		return
+	var working := false
+	if predict_on and aim_valid and not battle.ended:
+		var r := maxf(40.0, view_height_m() * 0.6)
+		var near: Array = []
+		for u in battle.units.query(aim_point, r):
+			if u.alive and u.team == 1 and u.beh != "static" and Vector2(u.pos.x - aim_point.x, u.pos.z - aim_point.z).length() < r:
+				near.append(u)
+		near.sort_custom(func(a, b): return a.pos.distance_squared_to(aim_point) < b.pos.distance_squared_to(aim_point))
+		for i in mini(near.size(), 12):
+			var u = near[i]
+			var tof := impact_time(u.pos)
+			predictions.append({"from": u.pos, "to": battle.units.predict(u, tof), "t": tof})
+		working = not predictions.is_empty()
+	if working:
+		pred_heat += PRED_HEAT_RATE * dt
+		if pred_heat >= 100.0:
+			pred_heat = 100.0
+			pred_shutdown = PRED_SHUTDOWN
+			predictions.clear()
+			battle.radio("SPECTRE", "Fire control computer overheated, prediction offline for one minute.")
+	else:
+		pred_heat = maxf(0.0, pred_heat - PRED_COOL_RATE * dt)
 
 
 ## True while point track is computing a lead on a moving target.
@@ -483,24 +541,99 @@ func _call_support() -> void:
 
 
 # --- Autotest bot ---------------------------------------------------------
+# Plays like a competent gunner, for balance testing: engages the enemies
+# closest to friendly troops, locks on so fire control leads them, picks a
+# gun that won't hit friendlies, and drops a JDAM on big clusters.
+
+var bot_think := 0.0
+
 
 func _bot_aim(dt: float) -> Vector2:
 	bot_t -= dt
-	if bot_t < -1.5:
-		var best = null
-		var bd := 1.0e9
-		for u in battle.units.list:
-			if u.alive and u.team == 1 and u.beh != "static":
-				var dd: float = u.pos.distance_to(orbit_center)
-				if dd < bd:
-					bd = dd
-					best = u
-		if best != null:
-			aim_point = best.pos
-			aim_valid = true
-			look_dir = (aim_point - global_position).normalized()
-			mag_goal = 20.0
-			bot_t = 2.0
-			if weapons.size() > 1:
-				wsel = randi() % weapons.size()
+	bot_think -= dt
+	if bot_think <= 0.0:
+		bot_think = 1.5
+		_bot_pick()
 	return Vector2.ZERO
+
+
+func _weapon_index(id: String) -> int:
+	for i in weapons.size():
+		if weapons[i].id == id and (int(weapons[i].ammo) > 0 or float(weapons[i].reload_t) < 1.0):
+			return i
+	return -1
+
+
+func _bot_pick() -> void:
+	var friends: Array = []
+	var enemies: Array = []
+	for u in battle.units.list:
+		if not u.alive:
+			continue
+		if u.team == 0 and u.kind != "wreck" and u.beh != "heli":
+			friends.append(u.pos)
+		elif u.team == 1 and u.beh != "static":
+			enemies.append(u)
+	var best = null
+	var best_score := 1.0e18
+	var best_friend := 1.0e9
+	for u in enemies:
+		var nf := 1.0e9
+		for f in friends:
+			nf = minf(nf, u.pos.distance_squared_to(f))
+		nf = sqrt(nf)
+		if friends.is_empty():
+			nf = u.pos.distance_to(orbit_center)
+		if nf < 10.0:
+			continue
+		var score := nf
+		if u.d.has("aa"):
+			score *= 0.5
+		if u.veh:
+			score *= 0.8
+		if score < best_score:
+			best_score = score
+			best = u
+			best_friend = nf
+	if best == null:
+		bot_t = 0.0
+		return
+	# Locking on makes fire control lead the target; near friendlies a
+	# charging enemy gets led right onto them, so aim straight at it there.
+	track_unit = best if best_friend > 40.0 else null
+	track_off = Vector3(0, 0.8, 0)
+	track_vel = Vector3.ZERO
+	track_last = best.pos
+	aim_point = best.pos
+	aim_valid = true
+	mag_goal = 20.0
+	var cluster := 0
+	for u in enemies:
+		if u.pos.distance_to(best.pos) < 15.0:
+			cluster += 1
+	var pick := -1
+	# big guns need more room near survivors packed behind walls
+	var room := 1.6 if battle.mission.type in ["zombie", "laststand"] else 1.0
+	if best_friend < 22.0 * room:
+		pick = _weapon_index("w_762")
+	elif best.veh and int(best.d.get("armor", 0)) >= 2:
+		pick = _weapon_index("w_105")
+		if pick < 0:
+			pick = _weapon_index("w_40")
+	elif cluster >= 3 and best_friend > 45.0 * room:
+		pick = _weapon_index("w_105")
+	if pick < 0 and best_friend > 25.0 * room:
+		pick = _weapon_index("w_40")
+	if pick < 0:
+		pick = _weapon_index("w_30")
+	if pick < 0:
+		pick = _weapon_index("w_762")
+	if pick >= 0:
+		wsel = pick
+	bot_t = 1.5
+	if cluster >= 6 and best_friend > 130.0:
+		for i in supports.size():
+			if supports[i].id == "s_jdam" and int(supports[i].charges) > 0:
+				ssel = i
+				_call_support()
+				break

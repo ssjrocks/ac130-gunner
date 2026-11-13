@@ -34,7 +34,7 @@ code, with no asset files.
   coordinated strike plus SF exfil, combat search and rescue, SAM hunt, HVT
   hunt among civilian traffic, outbreak (survivors against zombie hordes),
   last stand, survival.
-- **Modes:** a 16-mission campaign across 6 chapters, skirmish (any map and
+- **Modes:** a 46-mission campaign across 12 chapters, skirmish (any map and
   mission type), survival (endless calls for fire) and last stand (endless
   waves, against insurgents or zombies).
 - **Career:** 8 ranks from Airman to Chief Master Sergeant. Weapons, sensors,
@@ -42,6 +42,12 @@ code, with no asset files.
   equipment early.
 - **Rules of engagement:** fratricide and civilian casualties cost score, and
   too many end the mission.
+- **Supercomputer target prediction** (P, off by default): marks where the
+  enemies near your aim point will be when the selected weapon's rounds land.
+  It heats up while predicting, giving 30 seconds of use in every 2 minutes;
+  at 100% it shuts down for a minute to cool.
+- **Contact markers:** enemy positions called over the radio or spotted by
+  friendly troops are marked on the map.
 - Mouse and keyboard, plus gamepad.
 - In-game updates from GitHub releases.
 
@@ -63,6 +69,7 @@ code, with no asset files.
 | Climb / descend | PgUp / PgDn | D-pad |
 | Map (click to move the orbit) | Tab | Back |
 | Friendly markers | I | |
+| Target prediction | P | D-pad left |
 | Help overlay | H | |
 | Pause | Esc | Start |
 

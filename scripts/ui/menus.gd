@@ -566,6 +566,7 @@ func _controls() -> void:
 		["Climb / descend", "PgUp / PgDn", "D-pad up / down"],
 		["Map (click to move orbit)", "Tab", "Back"],
 		["Friendly markers", "I", ""],
+		["Target prediction (overheats)", "P", "D-pad left"],
 		["Help overlay", "H, F1", ""],
 		["Pause", "Esc", "Start"],
 	]

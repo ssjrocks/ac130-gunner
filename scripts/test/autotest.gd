@@ -48,6 +48,10 @@ func begin(s: String) -> void:
 		f.close()
 		get_tree().quit()
 		return
+	if parts[0] == "predict":
+		flow_mode = true
+		_predict_test()
+		return
 	if parts[0] == "callouts":
 		flow_mode = true
 		_callout_test(parts.slice(1))
@@ -94,6 +98,10 @@ func begin(s: String) -> void:
 			return
 	Game.settings.loadout = "all"
 	cfg["mode"] = "skirmish" if cfg.get("mode", "") == "campaign" else cfg.get("mode", "skirmish")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--diff="):
+			cfg["difficulty"] = int(arg.substr(7))
+			Game.settings.difficulty = int(arg.substr(7))
 	Game.start_mission(cfg)
 	if shots_dir != "":
 		DirAccess.make_dir_recursive_absolute(shots_dir)
@@ -137,6 +145,17 @@ func _process(dt: float) -> void:
 		print("[autotest] t=%.0f state=%s friendly=%d enemy=%d near=%d civ=%d parts=%d shells=%d score=%d hp=%.0f frame=%.1fms" % [
 			t, b.mission.state, u.count_team(0), u.count_team(1), u.enemies_near(b.mission.focus, 450.0), u.count_team(2), b.effects.parts.size(),
 			b.ordnance.shells.size(), b.stats.score + b.mission.score_bonus, b.gunship.hp, ms])
+		if b.mission.type == "strike":
+			var smi = b.mission
+			var hs = smi.data.get("heli")
+			var cen: Vector3 = b.units.centroid("sf")
+			print("   strike phase=%d sf=%d boarded=%d sf_hp=%s dist_to_lz=%.0f enemies_near_sf(400)=%d heli=%s" % [smi.phase, b.units.count("sf"), b.units.boarded("sf"),
+				str(b.units.members("sf").map(func(x): return int(x.hp))), cen.distance_to(smi.data.lz), b.units.enemies_near(cen, 400.0), "-" if hs == null else str(hs.data.get("state", ""))])
+		if b.mission.type == "csar":
+			var mi = b.mission
+			var h = mi.data.get("heli")
+			print("   csar phase=%d pilots=%d boarded=%d enemies_near_lz(250)=%d near_crash(150)=%d heli=%s timer=%.0f" % [mi.phase, b.units.count("pilot"), b.units.boarded("pilot"),
+				b.units.enemies_near(mi.data.lz, 250.0), b.units.enemies_near(mi.site, 150.0), "-" if h == null else str(h.data.get("state", "")), mi.timer_left])
 		if b.mission.type == "escort":
 			for cu in b.units.members("convoy") + b.units.members("vip"):
 				print("   %s %s path %d/%d halted=%s moving=%s order=%s pos=%s detour=%s" % [cu.group, cu.kind, cu.path_i, cu.path.size(), cu.halted, cu.moving, cu.order, str(cu.pos.round()), str(cu.data.get("detour_t", 0.0))])
@@ -314,6 +333,7 @@ func _input_test(b) -> void:
 	if u != null:
 		g.aim_point = u.pos
 		g.aim_valid = true
+		g.track_unit = null
 		await _frames(2)
 		await _act("track")
 		_check("track", g.track_unit != null)
@@ -745,4 +765,82 @@ func _callout_test(spec: Array) -> void:
 		if b.ended:
 			break
 	print("[callout] %d enemy callouts, %d with new markers" % [calls, good])
+	get_tree().quit()
+
+
+## Target prediction: where the computer says each target will be when the
+## rounds land vs where it actually is then, and the heat timings.
+func _predict_test() -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.skirmish_cfg("flats", "cas", "day", 1)
+	cfg["civ"] = 0.0
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	for u in b.units.list.duplicate():
+		b.units.remove_unit(u)
+	var road: Array = b.world.route_points(0, false, 0.3, 0.7)
+	var truck = b.units.spawn("truck", 1, road[0], "e", {"order": "path", "path": road.duplicate()})
+	var start: Vector3 = road[0] + Vector3(40, 0, 40)
+	var man = b.units.spawn("rifle", 1, start, "e", {"order": "move", "path": [start + Vector3(300, 0, 120)], "speed_mul": 1.4})
+	for u in [truck, man]:
+		u.hp = 1.0e6
+	await _frames(60)
+	await _act("predictor")
+	print("[predict] predictor on: ", g.predict_on)
+	for target in [truck, man]:
+		for wid in ["w_762", "w_105"]:
+			for i in g.weapons.size():
+				if g.weapons[i].id == wid:
+					g.wsel = i
+			g.aim_point = target.pos
+			g.aim_valid = true
+			g.track_unit = target
+			await _frames(20)
+			var pr = null
+			for x in g.predictions:
+				if x.from.distance_to(target.pos) < 5.0:
+					pr = x
+			if pr == null:
+				print("[predict] FAIL no prediction for ", target.kind)
+				continue
+			if shots_dir != "" and wid == "w_105" and target == truck:
+				g.mag = 12.0
+				g.mag_goal = 12.0
+				g.pred_heat = 40.0
+				await _frames(10)
+				DirAccess.make_dir_recursive_absolute(shots_dir)
+				await RenderingServer.frame_post_draw
+				get_viewport().get_texture().get_image().save_png(shots_dir.path_join("predict.png"))
+				print("[predict] screenshot saved")
+				get_tree().quit()
+				return
+			var t0 := t
+			var to: Vector3 = pr.to
+			var moved: float = pr.from.distance_to(to)
+			while t - t0 < float(pr.t):
+				await get_tree().process_frame
+			print("[predict] %-6s %-6s T+%.1f s: predicted %.0f m of travel, missed actual position by %.1f m" % [target.kind, wid, pr.t, moved, to.distance_to(target.pos)])
+	g.track_unit = truck
+	g.pred_heat = 0.0
+	var t1 := t
+	while g.pred_shutdown <= 0.0 and t - t1 < 120.0:
+		await get_tree().process_frame
+	print("[predict] continuous use until overheat: %.1f s" % (t - t1))
+	var t2 := t
+	while g.pred_shutdown > 0.0 and t - t2 < 200.0:
+		await get_tree().process_frame
+	print("[predict] shutdown lasted %.1f s, heat now %.0f%%, predictions during shutdown: none" % [t - t2, g.pred_heat])
+	var t3 := t
+	while g.pred_heat < 50.0 and t - t3 < 60.0:
+		await get_tree().process_frame
+	await _act("predictor")
+	var t4 := t
+	while g.pred_heat > 0.0 and t - t4 < 200.0:
+		await get_tree().process_frame
+	print("[predict] from 50%% heat, switched off: cooled to 0 in %.1f s" % (t - t4))
 	get_tree().quit()

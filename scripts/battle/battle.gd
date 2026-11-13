@@ -152,11 +152,13 @@ func on_unit_killed(u, by_player: bool, wid: String) -> void:
 	if u.team == 0:
 		if u.kind == "wreck":
 			return
+		if Game.autotest != "":
+			print("[ff] %s killed by %s, sensor aim %.0f m away, %s" % [u.kind, wid, u.pos.distance_to(gunship.aim_point), "tracking %s" % gunship.track_unit.kind if gunship.track_unit != null else "no track"])
 		stats.friendly_kills += 1
 		stats.score -= 500
 		radio("JTAC", "CEASE FIRE! CEASE FIRE! You're hitting friendlies!")
 		hud.message("FRIENDLY KILLED", 3.0)
-		if stats.friendly_kills >= 3:
+		if stats.friendly_kills >= int(cfg.get("max_ff", 6 if cfg.get("type", "") == "zombie" else 3)):
 			mission.lose("RELIEVED OF DUTY: FRATRICIDE")
 		return
 	if u.team == 2:

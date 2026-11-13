@@ -282,5 +282,6 @@ func _setup_input() -> void:
 	_act("alt_down", [_k(KEY_PAGEDOWN), _jb(JOY_BUTTON_DPAD_DOWN)])
 	_act("map", [_k(KEY_TAB), _jb(JOY_BUTTON_BACK)])
 	_act("iff", [_k(KEY_I)])
+	_act("predictor", [_k(KEY_P), _jb(JOY_BUTTON_DPAD_LEFT)])
 	_act("help", [_k(KEY_H), _k(KEY_F1)])
 	_act("pause", [_k(KEY_ESCAPE), _jb(JOY_BUTTON_START)])

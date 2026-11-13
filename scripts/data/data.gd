@@ -105,9 +105,9 @@ const RANKS := [
 ]
 
 const DIFFICULTY := [
-	{"name": "RECRUIT", "enemy": 0.7, "acc": 0.7, "aa": 0.6, "plane_dmg": 0.6, "xp": 0.8, "auto_flares": true},
-	{"name": "REGULAR", "enemy": 1.0, "acc": 1.0, "aa": 1.0, "plane_dmg": 1.0, "xp": 1.0, "auto_flares": false},
-	{"name": "VETERAN", "enemy": 1.35, "acc": 1.25, "aa": 1.4, "plane_dmg": 1.3, "xp": 1.4, "auto_flares": false},
+	{"name": "RECRUIT", "enemy": 0.55, "acc": 0.5, "aa": 0.5, "plane_dmg": 0.5, "xp": 0.8, "auto_flares": true},
+	{"name": "REGULAR", "enemy": 0.8, "acc": 0.75, "aa": 0.85, "plane_dmg": 0.85, "xp": 1.0, "auto_flares": false},
+	{"name": "VETERAN", "enemy": 1.15, "acc": 1.05, "aa": 1.2, "plane_dmg": 1.15, "xp": 1.4, "auto_flares": false},
 ]
 
 

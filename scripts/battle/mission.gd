@@ -458,10 +458,10 @@ func _update_laststand(dt: float) -> void:
 			data.spawn_acc = float(data.get("spawn_acc", 0.0)) + dt * (6.0 + wave * 2.0)
 			while float(data.spawn_acc) >= 1.0 and int(data.spawned) < int(data.to_spawn):
 				data.spawn_acc = float(data.spawn_acc) - 1.0
-				_zombie_one("wave", 450.0, 900.0, wave >= 3)
+				_zombie_one("wave", 250.0, 550.0, wave >= 3)
 				data.spawned = int(data.spawned) + 1
 		var left: int = units.count("wave")
-		var done := (not zombies or int(data.spawned) >= int(data.to_spawn)) and (left <= maxi(2, int(data.get("spawned", 10)) / 12) or t - float(data.wave_start) > 210.0)
+		var done := (not zombies or int(data.spawned) >= int(data.to_spawn)) and (left <= maxi(2, int(data.get("spawned", 10)) / 12) or t - float(data.wave_start) > 150.0)
 		if done:
 			score_bonus += 300 * wave
 			set_obj(data.wobj, 0, "Survive the waves (%d survived)" % wave)
@@ -515,8 +515,8 @@ func _update_zombie(dt: float) -> void:
 	if surv + aboard == 0:
 		lose("THE SURVIVORS WERE OVERRUN")
 		return
-	var rate := (2.0 + t / 60.0) * enemy_mult
-	var cap := int(340 * enemy_mult)
+	var rate := (1.0 + t / 120.0) * enemy_mult
+	var cap := int(240 * enemy_mult)
 	if phase < 2 and units.count("z") < cap:
 		data.spawn_acc = float(data.spawn_acc) + dt * rate
 		while float(data.spawn_acc) >= 1.0:
@@ -528,7 +528,7 @@ func _update_zombie(dt: float) -> void:
 		data.horde_t = randf_range(80.0, 110.0)
 		var a := randf() * TAU
 		data.horde_ang = a
-		var n := int((60 + t / 4.0) * enemy_mult)
+		var n := int((35 + t / 8.0) * enemy_mult)
 		var horde: Array = []
 		for i in n:
 			horde.append(_zombie_one("z", 600.0, 900.0, true))
@@ -771,7 +771,7 @@ func _setup_strike() -> void:
 	for i in 2:
 		units.spawn("technical", 1, world.free_spot(Vector2(tp.x, tp.z), 40.0), "guards", {"order": "hold"})
 	add_contact(units.members("guards"))
-	units.squad(["sf", "sf", "sf", "sf"], 0, op, 6.0, "sf", {"order": "hold"})
+	units.squad(["sf", "sf", "sf", "sf"], 0, op, 6.0, "sf", {"order": "hold", "data": {"hide_r": 150.0}})
 	battle.sf_laser = {"from": units.members("sf")[0], "to": hvt}
 	data.window = float(cfg.get("window", 150.0))
 	focus = tp
@@ -807,10 +807,10 @@ func _update_strike(dt: float) -> void:
 			var c: Vector3 = units.centroid("sf")
 			var lz: Vector3 = data.lz
 			wave_t -= dt
-			if wave_t <= 0.0:
+			if wave_t <= 0.0 and c.distance_to(lz) > 300.0:
 				wave += 1
-				wave_t = 45.0
-				var names := spawn_wave(level + wave * 0.5, c, "pursuit", 2, 600.0, 900.0)
+				wave_t = 70.0
+				var names := spawn_wave(level + wave * 0.35, c, "pursuit", 2, 600.0, 900.0)
 				_wave_radio(names, level, 750.0)
 			follow_t -= dt
 			if follow_t <= 0.0:
@@ -820,15 +820,15 @@ func _update_strike(dt: float) -> void:
 						u.goal = c + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
 				if not battle.gunship.manual_orbit:
 					battle.gunship.set_orbit(c, false)
-			if data.get("heli") == null and c.distance_to(lz) < 60.0:
+			if data.get("heli") == null and c.distance_to(lz) < 450.0:
 				data.heli = _heli(lz)
-				radio("VIKING 3-1", "At the LZ. Spectre, keep them off us till the bird lands.")
+				radio("PEDRO 6-6", "Pedro 6-6 launching for Viking's pickup. Spectre, keep the LZ clear.")
 			var h = data.get("heli")
 			if h != null:
 				if not h.alive and not h.boarded:
 					lose("THE EXFIL HELICOPTER WAS LOST")
 					return
-				h.data["hot"] = units.enemies_near(lz, 200.0) >= 3
+				h.data["hot"] = units.enemies_near(lz, 150.0) >= 4
 				var st: String = h.data.get("state", "")
 				if st == "hold" and int(data.get("hot_msg", 0)) == 0:
 					data.hot_msg = 1
@@ -854,6 +854,8 @@ func _strike_exfil() -> void:
 	battle.sf_laser = {}
 	radio("VIKING 3-1", "Good effect on target! HVT is dead. We're compromised, moving to the LZ.")
 	for u in units.members("sf"):
+		u.data.erase("hide_r")
+		u.speed_mul = 1.5
 		u.order = "move"
 		u.path = [data.lz + Vector3(randf_range(-10, 10), 0, randf_range(-10, 10))]
 		u.path_i = 0
@@ -874,7 +876,7 @@ func _setup_csar() -> void:
 	site_label = "CRASH SITE"
 	units.spawn("wreck", 0, crash, "wreck", {"tint": Color(0.35, 0.33, 0.3)})
 	battle.effects.fire(crash + Vector3(0, 2, 0), 3.0, 600.0)
-	units.squad(["pilot", "pilot"], 0, crash, 25.0, "pilot", {"order": "hold"})
+	units.squad(["pilot", "pilot"], 0, crash, 25.0, "pilot", {"order": "hold", "data": {"hide_r": 220.0}})
 	timer_left = float(cfg.get("duration", 240.0))
 	data.duration = timer_left
 	focus = crash
@@ -893,7 +895,7 @@ func _update_csar(dt: float) -> void:
 		return
 	var lz: Vector3 = data.lz
 	wave_t -= dt
-	if wave_t <= 0.0 and phase < 2:
+	if wave_t <= 0.0 and phase == 0 and timer_left > 45.0:
 		wave += 1
 		wave_t = 55.0
 		var L := level + wave * 0.5
@@ -901,9 +903,9 @@ func _update_csar(dt: float) -> void:
 		_wave_radio(names, L, 1000.0)
 	timer_left = float(data.duration) - t
 	timer_label = "PEDRO ETA" if phase == 0 else "PICKUP"
-	if phase == 0 and timer_left <= 40.0 and not data.get("moved", false):
+	if phase == 0 and timer_left <= 60.0 and not data.get("moved", false):
 		data.moved = true
-		radio("SANDY", "Buster, move to the LZ now, pickup in forty seconds.")
+		radio("SANDY", "Buster, move to the LZ now, pickup in one minute.")
 		for u in pil:
 			u.order = "move"
 			u.path = [lz + Vector3(randf_range(-8, 8), 0, randf_range(-8, 8))]
@@ -917,7 +919,7 @@ func _update_csar(dt: float) -> void:
 		if not h.alive and not h.boarded:
 			lose("THE RESCUE HELICOPTER WAS LOST")
 			return
-		h.data["hot"] = units.enemies_near(lz, 250.0) >= 3
+		h.data["hot"] = units.enemies_near(lz, 150.0) >= 4
 		var st: String = h.data.get("state", "")
 		if st == "hold" and int(data.get("hot_msg", 0)) == 0:
 			data.hot_msg = 1

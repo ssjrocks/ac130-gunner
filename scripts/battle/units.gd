@@ -10,10 +10,10 @@ const CELL := 100.0
 const KINDS := {
 	"soldier": {"mesh": "friendly", "hp": 100.0, "speed": 3.0, "run": 4.8, "range": 420.0, "dmg": 9.0, "rof": 1.0, "acc": 0.14, "heat": 0.85, "score": 0},
 	"mg": {"mesh": "friendly", "hp": 100.0, "speed": 2.6, "run": 4.2, "range": 650.0, "dmg": 6.0, "rof": 5.0, "acc": 0.06, "heat": 0.85, "score": 0},
-	"sf": {"mesh": "sf", "hp": 170.0, "speed": 3.4, "run": 5.2, "range": 480.0, "dmg": 13.0, "rof": 1.4, "acc": 0.24, "heat": 0.85, "score": 0},
-	"survivor": {"mesh": "surv", "hp": 90.0, "speed": 2.8, "run": 4.6, "range": 240.0, "dmg": 30.0, "rof": 0.8, "acc": 0.4, "heat": 0.85, "score": 0},
+	"sf": {"mesh": "sf", "hp": 260.0, "speed": 3.4, "run": 5.2, "range": 480.0, "dmg": 13.0, "rof": 1.4, "acc": 0.24, "heat": 0.85, "score": 0},
+	"survivor": {"mesh": "surv", "hp": 140.0, "speed": 2.8, "run": 4.6, "range": 260.0, "dmg": 35.0, "rof": 0.9, "acc": 0.5, "heat": 0.85, "score": 0},
 	"vip": {"mesh": "vip", "hp": 150.0, "speed": 2.6, "run": 4.4, "range": 0.0, "heat": 0.85, "score": 0},
-	"pilot": {"mesh": "pilot", "hp": 180.0, "speed": 2.6, "run": 4.4, "range": 180.0, "dmg": 5.0, "rof": 0.6, "acc": 0.25, "heat": 0.85, "score": 0},
+	"pilot": {"mesh": "pilot", "hp": 320.0, "speed": 2.6, "run": 4.4, "range": 180.0, "dmg": 5.0, "rof": 0.6, "acc": 0.25, "heat": 0.85, "score": 0},
 	"rifle": {"mesh": "enemy", "hp": 100.0, "speed": 3.0, "run": 4.8, "range": 380.0, "dmg": 7.0, "rof": 1.0, "acc": 0.1, "heat": 0.85, "score": 10},
 	"emg": {"mesh": "enemy", "hp": 100.0, "speed": 2.6, "run": 4.2, "range": 600.0, "dmg": 5.0, "rof": 5.0, "acc": 0.045, "heat": 0.85, "score": 15},
 	"rpg": {"mesh": "enemyrpg", "hp": 100.0, "speed": 2.8, "run": 4.6, "range": 330.0, "dmg": 170.0, "rof": 0.12, "acc": 0.35, "pen": 2, "explosive": 3.0, "av": true, "heat": 0.85, "score": 20},
@@ -79,6 +79,7 @@ class U extends RefCounted:
 	var aa_t := 0.0
 	var phase := 0.0
 	var veh := false
+	var vel := Vector3.ZERO
 	var r := 0.45
 	var on_arrive := ""
 	var data := {}
@@ -215,7 +216,7 @@ func squad(kinds: Array, team: int, center: Vector3, spread: float, group: Strin
 	var out: Array = []
 	for k in kinds:
 		var p: Vector3 = world.free_spot(Vector2(center.x, center.z), spread)
-		var o: Dictionary = opts.duplicate()
+		var o: Dictionary = opts.duplicate(true)
 		if o.has("goal"):
 			var g: Vector3 = o.goal
 			o.goal = g + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * maxf(spread, 8.0)
@@ -319,6 +320,32 @@ func centroid(group: String) -> Vector3:
 	if n == 0:
 		return Vector3.ZERO
 	return s / n
+
+
+## Where u will be in t seconds: along its route for units following a
+## path, otherwise straight on at its current velocity.
+func predict(u: U, t: float) -> Vector3:
+	var spd := Vector2(u.vel.x, u.vel.z).length()
+	if spd < 0.2:
+		return u.pos
+	var p := u.pos
+	if u.order in ["move", "convoy", "path"] and u.path_i < u.path.size():
+		var left := spd * t
+		var i := u.path_i
+		while left > 0.0 and i < u.path.size():
+			var w: Vector3 = u.path[i]
+			var seg := Vector2(w.x - p.x, w.z - p.z).length()
+			if seg >= left:
+				p += (w - p) * (left / maxf(seg, 0.001))
+				left = 0.0
+			else:
+				p = w
+				left -= seg
+				i += 1
+	else:
+		p += Vector3(u.vel.x, 0.0, u.vel.z) * t
+	p.y = world.height(p.x, p.z)
+	return p
 
 
 static func armor_mul(pen: int, armor: int) -> float:
@@ -472,7 +499,8 @@ func _cleanup() -> void:
 			if u.heat > 0.3 and not u.boarded:
 				u.heat = maxf(0.3, u.heat - (0.004 if u.veh else 0.006))
 				u.node.set_instance_shader_parameter("heat", u.heat)
-			if u.boarded or u.dead_t > (400.0 if u.veh else 240.0) or (dead > 450 and not u.veh):
+			# boarded units stay listed (hidden): missions count them as rescued
+			if not u.boarded and (u.dead_t > (400.0 if u.veh else 240.0) or (dead > 450 and not u.veh)):
 				if is_instance_valid(u.node):
 					u.node.queue_free()
 				list.remove_at(i)
@@ -541,6 +569,9 @@ func _find_target(u: U, rng: float, need_los := true) -> U:
 			continue
 		var d2: float = (v.pos - u.pos).length_squared()
 		if d2 > lim:
+			continue
+		# hiding units (downed crew, SF on an OP) are only found up close
+		if v.data.has("hide_r") and d2 > float(v.data.hide_r) * float(v.data.hide_r):
 			continue
 		if av and v.veh:
 			d2 *= 0.3
@@ -634,6 +665,7 @@ func _fight(u: U, dt: float) -> void:
 
 
 func _move(u: U, dt: float) -> void:
+	u.vel = Vector3.ZERO
 	if u.halted or float(u.d.speed) <= 0.0:
 		u.moving = false
 		return
@@ -705,6 +737,7 @@ func _move(u: U, dt: float) -> void:
 	if np.y < world.water_level - 0.3:
 		u.moving = false
 		return
+	u.vel = (np - u.pos) / maxf(dt, 0.0001)
 	u.pos = np
 	var want := atan2(-to.x, -to.z)
 	u.heading = lerp_angle(u.heading, want, minf(1.0, dt * (2.5 if u.veh else 8.0)))
@@ -792,7 +825,7 @@ func _heli(u: U, dt: float) -> void:
 	match st:
 		"inbound":
 			var dl := Vector2(lz.x - u.pos.x, lz.z - u.pos.z).length()
-			if u.data.get("hot", false) and dl < 700.0:
+			if u.data.get("hot", false) and not u.data.get("brave", false) and dl < 700.0:
 				u.data.state = "hold"
 			elif dl < 260.0:
 				u.data.state = "land"
@@ -800,8 +833,14 @@ func _heli(u: U, dt: float) -> void:
 			# circle 700 m out until the LZ is cold
 			var a := time * 0.08 + u.phase
 			target = lz + Vector3(cos(a), 0, sin(a)) * 700.0
+			u.data["hold_t"] = float(u.data.get("hold_t", 0.0)) + dt
 			if not u.data.get("hot", false):
 				u.data.state = "inbound"
+			elif float(u.data.hold_t) > 45.0:
+				# can't wait for ever: comes in anyway
+				u.data["brave"] = true
+				u.data.state = "inbound"
+				battle.radio("PEDRO 6-6", "We can't hold any longer, coming in hot! Cover us!")
 		"land":
 			var dl2 := Vector2(lz.x - u.pos.x, lz.z - u.pos.z).length()
 			spd = clampf(dl2 * 0.25, 3.0, 40.0)

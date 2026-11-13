@@ -145,6 +145,7 @@ func _draw() -> void:
 	C = Color(0.02, 0.16, 0.05) if Game.view_mode == 3 else UiTheme.FG
 	SH = Color(1, 1, 1, 0.55) if Game.view_mode == 3 else Color(0, 0, 0, 0.6)
 	_draw_markers(g, sz)
+	_draw_predictions(g)
 	_draw_reticle(c, g)
 	_draw_frame(g, sz)
 	_draw_readouts(g, sz)
@@ -294,6 +295,8 @@ func _draw_readouts(g, sz: Vector2) -> void:
 		line += "LSR %s  " % ("ON" if g.lasing else ("ARM" if g.laser_latch else "SAFE"))
 	line += "TRK %s" % (("LEAD" if g.leading() else "LOCK") if g.track_unit != null else "OFF")
 	_text(Vector2(x, y), line, 18, UiTheme.ACCENT if g.lasing else C)
+	y += 30
+	_draw_heat(g, Vector2(x, y))
 	if not g.in_gimbal():
 		_text(Vector2(sz.x * 0.5 - 200, sz.y * 0.5 + 150), "GIMBAL LIMIT", 22, UiTheme.BAD, HORIZONTAL_ALIGNMENT_CENTER, 400)
 
@@ -538,6 +541,47 @@ func _draw_markers(g, sz: Vector2) -> void:
 		_text(ts + Vector2(14, -8), "%s %ds" % [gd.def.get("short", ""), int(left)], 14, UiTheme.ACCENT)
 
 
+## Heat bar for the prediction computer, under the readouts.
+func _draw_heat(g, p: Vector2) -> void:
+	if not g.predict_on and g.pred_heat <= 0.0 and g.pred_shutdown <= 0.0:
+		return
+	var status := "OFF"
+	var col := C
+	if g.pred_shutdown > 0.0:
+		status = "OVERHEAT %02d s" % int(ceil(g.pred_shutdown))
+		col = UiTheme.BAD
+	elif g.predict_on:
+		status = "PREDICTING" if not g.predictions.is_empty() else "STANDBY"
+		if g.pred_heat > 75.0:
+			col = UiTheme.ACCENT
+	_text(p, "PRED %s" % status, 16, col)
+	var bar := Rect2(p + Vector2(0, 8), Vector2(220, 9))
+	draw_rect(bar, Color(0, 0, 0, 0.5))
+	var f := clampf(g.pred_heat / 100.0, 0.0, 1.0)
+	var fill := C if f < 0.75 else (UiTheme.ACCENT if f < 1.0 else UiTheme.BAD)
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * f, bar.size.y)), fill)
+	_box(bar, col, 1.0)
+	_text(p + Vector2(230, 17), "%d%%" % int(g.pred_heat), 14, col)
+
+
+func _draw_predictions(g) -> void:
+	var cam: Camera3D = g.cam
+	for pr in g.predictions:
+		var a: Vector3 = pr.from + Vector3(0, 1, 0)
+		var b: Vector3 = pr.to + Vector3(0, 1, 0)
+		if cam.is_position_behind(a) or cam.is_position_behind(b):
+			continue
+		var sa := cam.unproject_position(a)
+		var sb := cam.unproject_position(b)
+		var col := Color(1.0, 0.55, 0.15)
+		if sa.distance_to(sb) > 6.0:
+			draw_dashed_line(sa, sb, Color(col.r, col.g, col.b, 0.9), 2.0, 6.0)
+		_line(sb + Vector2(-7, 0), sb + Vector2(7, 0), col, 1.5)
+		_line(sb + Vector2(0, -7), sb + Vector2(0, 7), col, 1.5)
+		draw_arc(sb, 10.0, 0.0, TAU, 16, col, 1.5)
+		_text(sb + Vector2(13, -8), "T+%.1f" % float(pr.t), 13, col)
+
+
 func _draw_alerts(sz: Vector2) -> void:
 	if warn_t > 0.0 and fmod(time, 0.5) < 0.32:
 		_text(Vector2(0, sz.y * 0.5 - 200), warn_text, 34, UiTheme.BAD, HORIZONTAL_ALIGNMENT_CENTER, sz.x)
@@ -576,6 +620,7 @@ func _draw_help(sz: Vector2) -> void:
 		"PgUp PgDn / D-pad ......... change altitude",
 		"Tab / Back ................ map (click to move orbit)",
 		"I ......................... friendly markers on/off",
+		"P / D-pad left ............ target prediction (heats up)",
 		"Esc / Start ............... pause",
 	]
 	var w := 540.0
