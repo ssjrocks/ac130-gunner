@@ -215,13 +215,45 @@ func _draw_reticle(c: Vector2, g) -> void:
 			_line(c + Vector2(0, -12), c + Vector2(0, 12), col)
 			var s: Dictionary = g.supports[g.ssel]
 			_text(c + Vector2(-200, 90), "%s  [FIRE] TO CALL" % s.def.short, 20, col, HORIZONTAL_ALIGNMENT_CENTER, 400)
-			if s.def.guide == "laser":
+			if s.def.get("placement", "") == "line":
+				_draw_strafe_line(g, s.def)
+				_text(c + Vector2(-250, 116), "WHEEL OR , . TO TURN THE RUN  (HDG %03d)" % int(rad_to_deg(g.line_ang)), 16, col, HORIZONTAL_ALIGNMENT_CENTER, 500)
+			elif s.def.kind == "qrf":
+				_text(c + Vector2(-250, 116), "PLATOON DRIVES HERE FROM %s" % String(battle.world.map.get("site_names", {}).get("qrf", "BASE")), 16, col, HORIZONTAL_ALIGNMENT_CENTER, 500)
+			elif s.def.kind == "heli":
+				_text(c + Vector2(-250, 116), "BLACK HAWK LANDS A SQUAD HERE", 16, col, HORIZONTAL_ALIGNMENT_CENTER, 500)
+			elif s.def.guide == "laser":
 				_text(c + Vector2(-200, 116), "LASER GUIDED: KEEP THE SPOT ON TARGET", 16, col, HORIZONTAL_ALIGNMENT_CENTER, 400)
 	if g.lasing and fmod(time, 0.5) < 0.35:
 		_text(c + Vector2(48, -44), "LSR", 20, UiTheme.ACCENT)
 	if g.track_unit != null:
 		_box(Rect2(c - Vector2(56, 56), Vector2(112, 112)), C, 1.0)
 		_text(c + Vector2(48, 66), "TRK", 18)
+
+
+## The ground track of a gun run or show of force, with an arrow for the
+## direction of flight.
+func _draw_strafe_line(g, def: Dictionary) -> void:
+	var cam: Camera3D = g.cam
+	var dir := Vector3(sin(g.line_ang), 0.0, -cos(g.line_ang))
+	var L: float = def.len
+	var pts := PackedVector2Array()
+	var w = battle.world
+	for k in 21:
+		var p: Vector3 = g.aim_point + dir * (L * (float(k) / 20.0 - 0.5))
+		p.y = w.height(p.x, p.z) + 1.0
+		if cam.is_position_behind(p):
+			return
+		pts.append(cam.unproject_position(p))
+	var col := UiTheme.ACCENT
+	draw_polyline(pts, SH, 6.0)
+	draw_polyline(pts, col, 3.0)
+	var tip: Vector2 = pts[pts.size() - 1]
+	var back: Vector2 = pts[pts.size() - 3]
+	var d := (tip - back).normalized()
+	var side := Vector2(-d.y, d.x) * 10.0
+	draw_colored_polygon(PackedVector2Array([tip + d * 16.0, tip + side, tip - side]), col)
+	_text(pts[0] + Vector2(-40, -12), "IN", 15, col)
 
 
 func _draw_frame(g, sz: Vector2) -> void:
@@ -276,7 +308,10 @@ func _draw_readouts(g, sz: Vector2) -> void:
 	_text(Vector2(x, y), mode_names[Game.view_mode], 34, C)
 	_text(Vector2(x + 110, y - 4), "%5.1fx  FOV %.2f" % [g.mag, g.fov()], 20)
 	y += 34
-	_text(Vector2(x, y), "ALT   %s FT AGL" % g.ALT_FT[g.alt_i], 18)
+	var alt_line := "ALT   %s FT AGL" % g.alt_text()
+	if absf(g.alt - g.alt_target()) > 15.0:
+		alt_line += "  > %s" % g._commas(int(round(g.alt_target() / g.FT / 100.0)) * 100)
+	_text(Vector2(x, y), alt_line, 18)
 	y += 24
 	if g.aim_valid:
 		_text(Vector2(x, y), "SLANT %s M" % _commas(int(g.aim_range)), 18)
@@ -312,7 +347,7 @@ static func _commas(n: int) -> String:
 
 func _draw_weapons(g, sz: Vector2) -> void:
 	var x := sz.x - 430.0
-	var y := sz.y * 0.36
+	var y := sz.y * 0.2
 	_text(Vector2(x, y), "WEAPONS", 16, UiTheme.DIM)
 	y += 26
 	for i in g.weapons.size():
@@ -433,7 +468,7 @@ func _draw_map(g, sz: Vector2) -> void:
 	for u in battle.units.list:
 		if u.alive and u.team == 0:
 			draw_rect(Rect2(to_map.call(u.pos) - Vector2(1.5, 1.5), Vector2(3, 3)), UiTheme.FRIEND)
-	for m in battle.mission.markers:
+	for m in battle.mission.markers + battle.support.markers:
 		var mp: Vector2 = to_map.call(m.pos)
 		var col := _marker_col(m.kind)
 		if m.kind == "intel":
@@ -480,7 +515,7 @@ func _marker_col(kind: String) -> Color:
 func _draw_markers(g, sz: Vector2) -> void:
 	var cam: Camera3D = g.cam
 	var c := sz * 0.5
-	for m in battle.mission.markers:
+	for m in battle.mission.markers + battle.support.markers:
 		var p: Vector3 = m.pos + Vector3(0, 4, 0)
 		var col := _marker_col(m.kind)
 		var dist := Vector2(p.x - g.aim_point.x, p.z - g.aim_point.z).length()
@@ -614,6 +649,7 @@ func _draw_help(sz: Vector2) -> void:
 		"Q E / bumpers, 1-6 ........ select weapon",
 		"V / Y ..................... sensor mode (TV NV WHT BHT)",
 		"G / X ..................... support calls (fire to call)",
+		"Wheel, , . / left stick X . turn a strafe line (A-10, show of force)",
 		"F / B ..................... flares",
 		"C / A ..................... track target",
 		"O / R3 .................... move orbit to sensor point",

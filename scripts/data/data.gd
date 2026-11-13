@@ -65,8 +65,26 @@ const SUPPORT := {
 		"dmg": 0.0, "radius": 0.0, "pen": 0, "fx": "", "count": 1, "charges": 4,
 		"radio": "Illumination round out, %d seconds.",
 	},
+	# placement "line": a strafe line on the ground, rotated with the wheel
+	"s_a10": {
+		"name": "A-10 GUN RUN", "short": "A-10 GUN RUN", "kind": "gunrun", "placement": "line", "len": 300.0, "tot": 16.0,
+		"dmg": 200.0, "radius": 5.5, "pen": 3, "speed": 1000.0, "fx": "medium", "tracer": 3, "charges": 2,
+		"radio": "Hawg 1-1, one A-10, guns, inbound along your line. Rounds on the ground in %d seconds.",
+	},
+	"s_sof": {
+		"name": "SHOW OF FORCE", "short": "SHOW OF FORCE", "kind": "sof", "placement": "line", "len": 1400.0, "tot": 12.0,
+		"charges": 3, "radio": "Viper 2-1 copies show of force, low pass along your line in %d seconds.",
+	},
+	"s_qrf": {
+		"name": "GROUND QRF (PLATOON)", "short": "QRF PLATOON", "kind": "qrf", "placement": "point", "tot": 0.0, "charges": 1,
+		"radio": "",
+	},
+	"s_heli": {
+		"name": "BLACK HAWK INSERTION (SQUAD)", "short": "HELO SQUAD", "kind": "heli", "placement": "point", "tot": 0.0, "charges": 2,
+		"radio": "",
+	},
 }
-const SUPPORT_ORDER := ["s_hellfire", "s_jdam", "s_lgb18", "s_tomahawk", "s_illum"]
+const SUPPORT_ORDER := ["s_hellfire", "s_jdam", "s_lgb18", "s_tomahawk", "s_illum", "s_a10", "s_sof", "s_qrf", "s_heli"]
 
 # Sensor view modes: 0 TV, 1 NV, 2 white-hot thermal, 3 black-hot thermal.
 const MODE_NAMES := ["TV", "NV", "WHT", "BHT"]
@@ -91,14 +109,18 @@ const UNLOCK_NAMES := {
 	"s_lgb18": "F/A-18 GBU-12 strike (laser)",
 	"s_tomahawk": "Tomahawk cruise missile",
 	"s_illum": "Illumination rounds",
+	"s_sof": "Show of force (low jet pass)",
+	"s_heli": "Black Hawk squad insertion",
+	"s_a10": "A-10 gun run",
+	"s_qrf": "Ground QRF platoon",
 }
 
 const RANKS := [
 	{"name": "Airman", "abbr": "AMN", "xp": 0, "unlocks": ["w_762"]},
-	{"name": "Airman First Class", "abbr": "A1C", "xp": 1200, "unlocks": ["v_nv", "w_30"]},
-	{"name": "Senior Airman", "abbr": "SRA", "xp": 3500, "unlocks": ["o_60", "laser", "s_hellfire"]},
-	{"name": "Staff Sergeant", "abbr": "SSGT", "xp": 7000, "unlocks": ["w_40", "v_ir"]},
-	{"name": "Technical Sergeant", "abbr": "TSGT", "xp": 12000, "unlocks": ["w_105", "s_jdam"]},
+	{"name": "Airman First Class", "abbr": "A1C", "xp": 1200, "unlocks": ["v_nv", "w_30", "s_sof"]},
+	{"name": "Senior Airman", "abbr": "SRA", "xp": 3500, "unlocks": ["o_60", "laser", "s_hellfire", "s_heli"]},
+	{"name": "Staff Sergeant", "abbr": "SSGT", "xp": 7000, "unlocks": ["w_40", "v_ir", "s_a10"]},
+	{"name": "Technical Sergeant", "abbr": "TSGT", "xp": 12000, "unlocks": ["w_105", "s_jdam", "s_qrf"]},
 	{"name": "Master Sergeant", "abbr": "MSGT", "xp": 19000, "unlocks": ["w_lgb", "s_lgb18", "s_illum"]},
 	{"name": "Senior Master Sergeant", "abbr": "SMSGT", "xp": 28000, "unlocks": ["o_150", "w_griffin"]},
 	{"name": "Chief Master Sergeant", "abbr": "CMSGT", "xp": 40000, "unlocks": ["s_tomahawk"]},

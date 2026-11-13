@@ -162,7 +162,21 @@ const CAMPAIGN := [
 		"brief": "The last convoy of the war: the peace delegation drives from FOB Anvil to Dashti. Everyone who wants the war to go on will be waiting along the road. Get them there."},
 ]
 
-const DEFAULT_SUPPORTS := {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_tomahawk": 1, "s_illum": 3}
+const DEFAULT_SUPPORTS := {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_tomahawk": 1, "s_illum": 3,
+	"s_a10": 1, "s_sof": 2, "s_qrf": 1, "s_heli": 1}
+
+# The newer call-ins each mission type gets on top of its own list.
+const TYPE_SUPPORTS := {
+	"cas": {"s_qrf": 1, "s_heli": 1, "s_sof": 1},
+	"laststand": {"s_qrf": 1, "s_a10": 1, "s_heli": 1},
+	"escort": {"s_a10": 1, "s_sof": 2},
+	"csar": {"s_sof": 2, "s_heli": 1},
+	"strike": {"s_sof": 1, "s_a10": 1},
+	"zombie": {"s_a10": 2, "s_heli": 1},
+	"interdict": {"s_a10": 1},
+	"hvt": {"s_sof": 1},
+	"sam": {"s_a10": 1},
+}
 
 
 static func campaign_cfg(i: int) -> Dictionary:
@@ -171,6 +185,9 @@ static func campaign_cfg(i: int) -> Dictionary:
 	c["index"] = i
 	if not c.has("supports"):
 		c["supports"] = {}
+	for sid in TYPE_SUPPORTS.get(c.type, {}):
+		if not c.supports.has(sid):
+			c.supports[sid] = TYPE_SUPPORTS[c.type][sid]
 	return c
 
 
@@ -217,7 +234,7 @@ static func survival_cfg(map_id: String, tod: String, difficulty: int) -> Dictio
 		"id": "survival_" + map_id, "mode": "survival", "map": map_id, "time": tod, "type": "survival",
 		"name": "Survival: %s" % String(m.name).capitalize(), "difficulty": difficulty, "level": 1.0,
 		"civ": 0.35, "aa": 0, "armor": 1, "xp": 0, "flares": 60, "max_civ": 10,
-		"supports": {"s_hellfire": 5, "s_jdam": 3, "s_lgb18": 2, "s_tomahawk": 1, "s_illum": 5},
+		"supports": {"s_hellfire": 5, "s_jdam": 3, "s_lgb18": 2, "s_tomahawk": 1, "s_illum": 5, "s_a10": 2, "s_sof": 3, "s_qrf": 2, "s_heli": 2},
 	}
 
 
@@ -229,5 +246,5 @@ static func laststand_cfg(map_id: String, tod: String, difficulty: int, zombies:
 		"name": "Last Stand: %s%s" % [String(m.name).capitalize(), " (Outbreak)" if zombies else ""],
 		"difficulty": difficulty, "level": 1.5, "civ": 0.0 if zombies else 0.15, "aa": 0 if zombies else 1, "armor": 2,
 		"friendlies": 14, "xp": 0, "flares": 50,
-		"supports": {"s_hellfire": 4, "s_jdam": 3, "s_lgb18": 2, "s_tomahawk": 1, "s_illum": 4},
+		"supports": {"s_hellfire": 4, "s_jdam": 3, "s_lgb18": 2, "s_tomahawk": 1, "s_illum": 4, "s_a10": 2, "s_sof": 2, "s_qrf": 1, "s_heli": 2},
 	}

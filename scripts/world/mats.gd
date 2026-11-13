@@ -57,6 +57,50 @@ void fragment() {
 }
 """
 
+# People: the solid shader plus a walk cycle. UV2.x tags a limb (1/2 legs,
+# 3/4 arms), UV2.y is the joint height it swings from; walk is the gait
+# phase and stride the swing in radians (0 when standing still).
+const UNIT := """
+shader_type spatial;
+render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+global uniform int view_mode;
+instance uniform vec4 tint : source_color = vec4(1.0);
+instance uniform float heat = 0.3;
+instance uniform vec4 glow = vec4(0.0);
+instance uniform float walk = 0.0;
+instance uniform float stride = 0.0;
+
+void vertex() {
+	float limb = UV2.x;
+	if (limb > 0.5 && stride > 0.0) {
+		float side = (limb < 1.5 || (limb > 2.5 && limb < 3.5)) ? 1.0 : -1.0;
+		float arm = limb > 2.5 ? -0.7 : 1.0;
+		float a = sin(walk) * stride * side * arm;
+		vec3 v = VERTEX - vec3(0.0, UV2.y, 0.0);
+		float c = cos(a);
+		float s = sin(a);
+		VERTEX = vec3(v.x, v.y * c - v.z * s, v.y * s + v.z * c) + vec3(0.0, UV2.y, 0.0);
+		NORMAL = vec3(NORMAL.x, NORMAL.y * c - NORMAL.z * s, NORMAL.y * s + NORMAL.z * c);
+	}
+}
+
+void fragment() {
+	if (view_mode >= 2) {
+		float h = clamp(heat * COLOR.a * 2.0, 0.0, 1.0);
+		if (view_mode == 3) { h = 1.0 - h; }
+		ALBEDO = vec3(0.0);
+		ROUGHNESS = 1.0;
+		SPECULAR = 0.0;
+		EMISSION = vec3(h);
+	} else {
+		ALBEDO = tint.rgb * COLOR.rgb;
+		ROUGHNESS = 0.85;
+		SPECULAR = 0.25;
+		EMISSION = glow.rgb * glow.a;
+	}
+}
+"""
+
 # Buildings are one unit cube (y 0..1) per instance in a MultiMesh.
 # INSTANCE_CUSTOM: rgb = colour, a = windows*1000 + seed + heat (fraction).
 const BUILDING := """
@@ -95,11 +139,29 @@ void fragment() {
 		float hs = hash12(vec2(col + seed * 13.0 + lnorm.x * 5.0, fl + seed * 7.0 + lnorm.z * 3.0));
 		lit = step(0.72, hs) * night * wmask;
 		c = mix(c, vec3(0.07, 0.08, 0.09), wmask * 0.85);
+		float wall_len = abs(lnorm.x) > 0.5 ? scl.z : scl.x;
+		if (windows > 0.5) {
+			// floor ledges and the odd air conditioner under a window
+			c *= 1.0 + 0.1 * (1.0 - step(0.06, fract(lpos.y / 3.2))) * step(1.0, lpos.y);
+			float ac = step(0.82, hash12(vec2(col * 3.1 + seed, fl * 1.7)));
+			float acm = ac * step(0.32, f.x) * step(f.x, 0.6) * step(0.1, f.y) * step(f.y, 0.26) * step(3.0, lpos.y) * step(lpos.y, scl.y - 1.0);
+			c = mix(c, vec3(0.72, 0.72, 0.7), acm);
+		} else {
+			// mud-brick courses
+			c *= 0.94 + 0.06 * step(0.14, fract(lpos.y / 0.34 + floor(u / 0.6) * 0.5));
+		}
+		// one door at ground level, on the wall the seed picks
+		float face = abs(lnorm.x) > 0.5 ? (lnorm.x > 0.0 ? 1.0 : 3.0) : (lnorm.z > 0.0 ? 2.0 : 0.0);
+		float door = step(abs(face - mod(seed, 4.0)), 0.1) * step(abs(u - wall_len * 0.5), 0.65) * step(0.5, lpos.y) * step(lpos.y, 2.7);
+		c = mix(c, vec3(0.22, 0.16, 0.11), door);
 		c *= mix(0.72, 1.0, clamp(lpos.y / 2.5, 0.0, 1.0));
 		float streak = vnoise(vec2(u * 0.7, lpos.y * 0.15) + seed);
 		c *= 0.9 + 0.12 * streak;
 	} else if (lnorm.y > 0.5) {
 		c *= 0.82 + 0.1 * vnoise(lpos.xz * 0.4 + seed);
+		c *= 0.92 + 0.12 * vnoise(lpos.xz * 2.3 + seed * 3.0);
+		float edge = min(min(lpos.x, scl.x - lpos.x), min(lpos.z, scl.z - lpos.z));
+		c *= mix(0.78, 1.0, smoothstep(0.15, 0.7, edge));
 	}
 	if (view_mode >= 2) {
 		float h = heat + lit * 0.3 + wmask * 0.04;
@@ -349,6 +411,10 @@ static func _mat(key: String, code: String) -> ShaderMaterial:
 
 static func solid() -> ShaderMaterial:
 	return _mat("solid", SOLID)
+
+
+static func unit() -> ShaderMaterial:
+	return _mat("unit", UNIT)
 
 
 static func building() -> ShaderMaterial:

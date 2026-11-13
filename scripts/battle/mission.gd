@@ -80,6 +80,12 @@ func setup(c: Dictionary) -> void:
 		_spawn_civilians(float(cfg.get("civ", 0.4)))
 	if type not in ["range", "sam", "survival"]:
 		_spawn_aa(int(cfg.get("aa", 0)))
+	if type != "range" and map.get("sites", {}).has("qrf"):
+		# the QRF base keeps a small garrison
+		var q: Vector3 = P("qrf")
+		units.squad(["soldier", "soldier", "mg", "soldier"], 0, q, 14.0, "garrison", {"order": "hold"})
+		for k in 2:
+			units.spawn("humvee", 0, world.free_spot(Vector2(q.x, q.z), 16.0), "garrison", {"order": "hold"})
 	_update_markers()
 
 

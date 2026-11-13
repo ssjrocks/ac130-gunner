@@ -37,11 +37,16 @@ var exclusions: Array = []     # [Vector3(x, z, r)] where towns must not build
 var buildings: Array = []
 var bgrid := {}
 var bmm: MultiMesh
+var props := {}              # prop mesh id -> [{xf, col, heat}] (roof parapets, tanks, domes...)
+var prop_mm := {}            # prop mesh id -> MultiMesh
 var sun: DirectionalLight3D
 var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var terrain_mat: ShaderMaterial
 var tv := {}
+var gates := {}             # outpost site -> unit vector (x, z) its gate faces
+var road_nodes := PackedVector2Array()
+var road_adj: Array = []
 
 
 func build(m: Dictionary, time_of_day: String, weather: String) -> void:
@@ -449,6 +454,145 @@ func route_points(road_i: int, reversed: bool, f0: float, f1: float) -> Array:
 	return out
 
 
+## Road network as a graph: points every 40 m, joined along each road and
+## wherever two roads come within 25 m of each other.
+func _build_road_graph() -> void:
+	var cell := {}
+	for list in [roads, streets]:
+		for pts in list:
+			var prev := -1
+			var total := 0.0
+			for k in pts.size() - 1:
+				total += pts[k].distance_to(pts[k + 1])
+			var d := 0.0
+			while d <= total + 0.1:
+				var p := _along(pts, d)
+				var id := road_nodes.size()
+				road_nodes.append(p)
+				road_adj.append([])
+				if prev >= 0:
+					road_adj[id].append(prev)
+					road_adj[prev].append(id)
+				var key := Vector2i(floori(p.x / 25.0), floori(p.y / 25.0))
+				for dx in [-1, 0, 1]:
+					for dz in [-1, 0, 1]:
+						var k2 := key + Vector2i(dx, dz)
+						if cell.has(k2):
+							for other in cell[k2]:
+								if other != prev and road_nodes[other].distance_to(p) < 25.0 and other not in road_adj[id]:
+									road_adj[id].append(other)
+									road_adj[other].append(id)
+				if not cell.has(key):
+					cell[key] = []
+				cell[key].append(id)
+				prev = id
+				d += 40.0
+
+
+static func _heap_push(h: Array, item: Array) -> void:
+	h.append(item)
+	var i := h.size() - 1
+	while i > 0:
+		var parent := (i - 1) / 2
+		if h[parent][0] <= h[i][0]:
+			break
+		var tmp = h[parent]
+		h[parent] = h[i]
+		h[i] = tmp
+		i = parent
+
+
+static func _heap_pop(h: Array) -> Array:
+	var top: Array = h[0]
+	var last: Array = h.pop_back()
+	if not h.is_empty():
+		h[0] = last
+		var i := 0
+		while true:
+			var l := i * 2 + 1
+			var r := l + 1
+			var m := i
+			if l < h.size() and h[l][0] < h[m][0]:
+				m = l
+			if r < h.size() and h[r][0] < h[m][0]:
+				m = r
+			if m == i:
+				break
+			var tmp = h[m]
+			h[m] = h[i]
+			h[i] = tmp
+			i = m
+	return top
+
+
+func _nearest_node(p: Vector2) -> int:
+	var best := -1
+	var bd := 1.0e18
+	for i in road_nodes.size():
+		var d := road_nodes[i].distance_squared_to(p)
+		if d < bd:
+			bd = d
+			best = i
+	return best
+
+
+## A driving route from a to b: along the roads when that isn't a big
+## detour, otherwise straight across country.
+func drive_path(a: Vector3, b: Vector3) -> Array:
+	if road_nodes.is_empty():
+		_build_road_graph()
+	var a2 := Vector2(a.x, a.z)
+	var b2 := Vector2(b.x, b.z)
+	var straight := a2.distance_to(b2)
+	var out: Array = []
+	var na := _nearest_node(a2)
+	var nb := _nearest_node(b2)
+	if na >= 0 and nb >= 0:
+		# Dijkstra over a few thousand nodes
+		var n := road_nodes.size()
+		var dist := PackedFloat32Array()
+		dist.resize(n)
+		dist.fill(1.0e18)
+		var from := PackedInt32Array()
+		from.resize(n)
+		from.fill(-1)
+		var done := PackedByteArray()
+		done.resize(n)
+		dist[na] = 0.0
+		var heap: Array = [[0.0, na]]
+		while not heap.is_empty():
+			var top: Array = _heap_pop(heap)
+			var cur: int = top[1]
+			if done[cur] == 1:
+				continue
+			done[cur] = 1
+			if cur == nb:
+				break
+			for nxt in road_adj[cur]:
+				var nd := dist[cur] + road_nodes[cur].distance_to(road_nodes[nxt])
+				if nd < dist[nxt]:
+					dist[nxt] = nd
+					from[nxt] = cur
+					_heap_push(heap, [nd, nxt])
+		if from[nb] >= 0 or na == nb:
+			var road_len := dist[nb] + a2.distance_to(road_nodes[na]) + b2.distance_to(road_nodes[nb])
+			if road_len < straight * 2.2 + 300.0:
+				var chain: Array = []
+				var c := nb
+				while c >= 0:
+					chain.push_front(c)
+					c = from[c]
+				out.append(a)
+				for id in chain:
+					out.append(to3(road_nodes[id]))
+				out.append(b)
+				return out
+	var steps := maxi(1, int(straight / 50.0))
+	for k in steps + 1:
+		out.append(to3(a2.lerp(b2, float(k) / steps)))
+	return out
+
+
 static func _along(pts: PackedVector2Array, dist: float) -> Vector2:
 	var acc := 0.0
 	for k in pts.size() - 1:
@@ -521,7 +665,7 @@ func touches_road(p: Vector2, r: float) -> bool:
 	return false
 
 
-func _add_bld(c: Vector2, w: float, d: float, h: float, ang: float, col: Color, kind: String, windows: bool, hp: float, heat := 0.33, near_road_ok := false) -> void:
+func _add_bld(c: Vector2, w: float, d: float, h: float, ang: float, col: Color, kind: String, windows: bool, hp: float, heat := 0.33, near_road_ok := false, roof := "") -> void:
 	if not near_road_ok and touches_road(c, 0.5 * sqrt(w * w + d * d)):
 		return
 	var ca := cos(ang)
@@ -539,8 +683,69 @@ func _add_bld(c: Vector2, w: float, d: float, h: float, ang: float, col: Color, 
 	buildings.append({
 		"c": Vector3(c.x, gc, c.y), "w": w, "d": d, "base": base, "top": gc + h, "ang": ang,
 		"ca": ca, "sa": sa, "hp": hp, "maxhp": hp, "alive": true, "kind": kind, "col": col,
-		"win": windows, "seed": rng.randi() % 1000, "heat": heat,
+		"win": windows, "seed": rng.randi() % 1000, "heat": heat, "props": [],
 	})
+	if roof == "":
+		roof = {"house": "flat", "tall": "city", "shed": "shed", "mosque": "dome"}.get(kind, "none")
+	_decorate(buildings.size() - 1, roof)
+
+
+func _prop(bi: int, mesh_id: String, xf: Transform3D, col: Color, heat: float) -> void:
+	if not props.has(mesh_id):
+		props[mesh_id] = []
+	props[mesh_id].append({"xf": xf, "col": col, "heat": heat})
+	buildings[bi].props.append([mesh_id, props[mesh_id].size() - 1])
+
+
+## Roof furniture: parapets, water tanks, AC units, dishes, pitched and
+## shed roofs, a dome and minaret on a mosque.
+func _decorate(bi: int, roof: String) -> void:
+	if roof == "none":
+		return
+	var b: Dictionary = buildings[bi]
+	var R := Basis(Vector3.UP, b.ang)
+	var top := Vector3(b.c.x, b.top, b.c.z)
+	var w: float = b.w
+	var d: float = b.d
+	var col: Color = b.col
+	var at := func(lx: float, ly: float, lz: float) -> Vector3:
+		return top + R * Vector3(lx, ly, lz)
+	match roof:
+		"flat", "city":
+			if roof == "city" or rng.randf() < 0.7:
+				var ph := 0.8
+				var t := 0.25
+				var pc := col.darkened(0.08)
+				_prop(bi, "cube", Transform3D(R * Basis.from_scale(Vector3(w, ph, t)), at.call(0.0, 0.0, d * 0.5 - t * 0.5)), pc, b.heat)
+				_prop(bi, "cube", Transform3D(R * Basis.from_scale(Vector3(w, ph, t)), at.call(0.0, 0.0, -d * 0.5 + t * 0.5)), pc, b.heat)
+				_prop(bi, "cube", Transform3D(R * Basis.from_scale(Vector3(t, ph, d)), at.call(w * 0.5 - t * 0.5, 0.0, 0.0)), pc, b.heat)
+				_prop(bi, "cube", Transform3D(R * Basis.from_scale(Vector3(t, ph, d)), at.call(-w * 0.5 + t * 0.5, 0.0, 0.0)), pc, b.heat)
+			if rng.randf() < (0.55 if roof == "city" else 0.3) and w > 4.0 and d > 4.0:
+				var tc: Color = [Color(0.85, 0.85, 0.82), Color(0.12, 0.12, 0.13), Color(0.25, 0.35, 0.55)][rng.randi() % 3]
+				_prop(bi, "prop_tank", Transform3D(R * Basis.from_scale(Vector3(1.4, 1.3, 1.4)), at.call(rng.randf_range(-0.3, 0.3) * w, 0.0, rng.randf_range(-0.3, 0.3) * d)), tc, 0.3)
+			if roof == "city":
+				for k in rng.randi() % 4:
+					_prop(bi, "cube", Transform3D(R * Basis.from_scale(Vector3(0.9, 0.7, 0.7)), at.call(rng.randf_range(-0.38, 0.38) * w, 0.0, rng.randf_range(-0.38, 0.38) * d)), Color(0.75, 0.75, 0.72), 0.5)
+				if rng.randf() < 0.3:
+					_prop(bi, "prop_dish", Transform3D(R * Basis(Vector3.UP, rng.randf() * TAU), at.call(rng.randf_range(-0.35, 0.35) * w, 0.0, rng.randf_range(-0.35, 0.35) * d)), Color(0.8, 0.8, 0.78), 0.3)
+		"pitched":
+			var rh := minf(w, d) * 0.32
+			var rc: Color = [Color(0.6, 0.28, 0.2), Color(0.38, 0.38, 0.4), Color(0.5, 0.33, 0.25)][rng.randi() % 3]
+			var long_x := w >= d
+			var sc := Vector3(w + 0.6, rh, d + 0.6) if long_x else Vector3(d + 0.6, rh, w + 0.6)
+			var rb := R if long_x else R * Basis(Vector3.UP, PI * 0.5)
+			_prop(bi, "prop_roof", Transform3D(rb * Basis.from_scale(sc), top), rc, 0.33)
+		"shed":
+			var long_x2 := w >= d
+			var sc2 := Vector3(w, 1.6, d) if long_x2 else Vector3(d, 1.6, w)
+			var rb2 := R if long_x2 else R * Basis(Vector3.UP, PI * 0.5)
+			_prop(bi, "prop_roof", Transform3D(rb2 * Basis.from_scale(sc2), top), col.darkened(0.15), b.heat)
+		"dome":
+			var dc: Color = [Color(0.88, 0.86, 0.8), Color(0.2, 0.55, 0.55), Color(0.75, 0.62, 0.3)][rng.randi() % 3]
+			_prop(bi, "prop_dome", Transform3D(R * Basis.from_scale(Vector3(w * 0.75, w * 0.45, d * 0.75)), top), dc, 0.3)
+			var corner: Vector3 = at.call(w * 0.5 + 1.6, 0.0, -d * 0.5 - 1.6)
+			corner.y = height(corner.x, corner.z) - 0.5
+			_prop(bi, "prop_minaret", Transform3D(Basis.from_scale(Vector3(2.4, (b.top - b.base) * 3.0, 2.4)), corner), col.lightened(0.05), 0.32)
 
 
 func _outpost_walls(c: Vector2, s: float, h: float, t: float, col: Color, gate_side: int, gate_w: float, hp: float, ang := 0.0, road_ok := false) -> void:
@@ -584,7 +789,24 @@ func _build_outposts() -> void:
 		var hesco := Color(0.66, 0.6, 0.47)
 		if biome == "urban":
 			hesco = Color(0.58, 0.58, 0.56)
-		_outpost_walls(c, s, 2.4, 1.6, hesco, 2, 9.0, 900.0, 0.0, true)
+		# the gate faces the nearest road
+		var to_road := Vector2(0, 1)
+		var best := 1.0e9
+		for r in roads:
+			for k in r.size() - 1:
+				var d := _seg_dist(c, r[k], r[k + 1])
+				if d < best:
+					best = d
+					var ab: Vector2 = r[k + 1] - r[k]
+					var tt := clampf((c - r[k]).dot(ab) / maxf(ab.length_squared(), 0.001), 0.0, 1.0)
+					to_road = (r[k] + ab * tt - c).normalized()
+		var normals := [Vector2(0, -1), Vector2(1, 0), Vector2(0, 1), Vector2(-1, 0)]
+		var side := 2
+		for k in 4:
+			if to_road.dot(normals[k]) > to_road.dot(normals[side]):
+				side = k
+		gates[sname] = normals[side]
+		_outpost_walls(c, s, 2.4, 1.6, hesco, side, 9.0, 900.0, 0.0, true)
 		if s >= 45.0:
 			for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
 				_add_bld(c + cr * (s * 0.5 - 2.0), 3.4, 3.4, 6.5, 0.0, Color(0.55, 0.5, 0.42), "tower", false, 700.0, 0.33, true)
@@ -645,6 +867,16 @@ func _gen_town(t: Dictionary) -> void:
 				"industrial":
 					_lot_industrial(lc, lot, ang)
 
+
+	# a mosque near the middle of every town
+	if style in ["compound", "village", "city", "mixed"]:
+		for k in 30:
+			var a := rng.randf() * TAU
+			var mp: Vector2 = c + Vector2(cos(a), sin(a)) * rng.randf_range(20.0, r * 0.35)
+			var ms := rng.randf_range(12.0, 18.0)
+			if not _excluded(mp, ms) and not touches_road(mp, ms) and not in_building(mp, ms * 0.8):
+				_add_bld(mp, ms, ms, rng.randf_range(6.0, 8.0), ang, Color(0.86, 0.83, 0.76), "mosque", false, 4000.0)
+				break
 
 func _mud() -> Color:
 	var k := rng.randf_range(-0.05, 0.05)
@@ -737,7 +969,7 @@ func _lot_suburb(lc: Vector2, lot: float, ang: float) -> void:
 	var w := rng.randf_range(9.0, 13.0)
 	var d := rng.randf_range(8.0, 11.0)
 	var floors := 1 if rng.randf() < 0.55 else 2
-	_add_bld(lc + Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3)), w, d, 3.3 * floors + 0.4, ang, col, "house", true, 1200.0 * floors)
+	_add_bld(lc + Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3)), w, d, 3.3 * floors + 0.4, ang, col, "house", true, 1200.0 * floors, 0.33, false, "pitched")
 	if rng.randf() < 0.3:
 		var ax := Vector2(cos(ang), -sin(ang))
 		_add_bld(lc + ax * (w * 0.5 + 4.0), 5.0, 6.0, 2.8, ang, col.darkened(0.1), "shed", false, 700.0)
@@ -773,6 +1005,22 @@ func _make_building_multimesh() -> void:
 	mmi.multimesh = bmm
 	mmi.material_override = Mats.building()
 	add_child(mmi)
+	for mesh_id in props:
+		var list: Array = props[mesh_id]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_custom_data = true
+		mm.mesh = Meshes.get_mesh(mesh_id)
+		mm.instance_count = list.size()
+		for i in list.size():
+			mm.set_instance_transform(i, list[i].xf)
+			var pc: Color = list[i].col
+			mm.set_instance_custom_data(i, Color(pc.r, pc.g, pc.b, float(list[i].heat)))
+		var pmi := MultiMeshInstance3D.new()
+		pmi.multimesh = mm
+		pmi.material_override = Mats.tree()
+		add_child(pmi)
+		prop_mm[mesh_id] = mm
 
 
 func _update_building(i: int) -> void:
@@ -912,6 +1160,10 @@ func damage_buildings(pos: Vector3, radius: float, dmg: float, pen: int, bidx: i
 func _collapse(bi: int) -> void:
 	var b: Dictionary = buildings[bi]
 	b.alive = false
+	for pr in b.props:
+		var mm: MultiMesh = prop_mm.get(pr[0])
+		if mm:
+			mm.set_instance_transform(pr[1], Transform3D(Basis.from_scale(Vector3.ONE * 0.001), Vector3(b.c.x, b.base, b.c.z)))
 	var h: float = b.top - b.base
 	b.top = b.base + maxf(h * 0.22, 0.8)
 	b.col = b.col.darkened(0.45)

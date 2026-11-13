@@ -560,6 +560,7 @@ func _controls() -> void:
 		["Select weapon", "Q / E, 1-6", "LB / RB"],
 		["Sensor mode TV / NV / WHT / BHT", "V", "Y"],
 		["Support menu (fire calls it)", "G", "X"],
+		["Turn a strafe line (A-10, show of force)", "Wheel, comma / period", "Left stick left/right"],
 		["Flares", "F", "B"],
 		["Track target", "C", "A"],
 		["Move orbit to sensor point", "O", "R3"],

@@ -14,6 +14,7 @@ const PauseMenu := preload("res://scripts/ui/pause.gd")
 const Maps := preload("res://scripts/data/maps.gd")
 const Data := preload("res://scripts/data/data.gd")
 const UiTheme := preload("res://scripts/ui/theme.gd")
+const Support := preload("res://scripts/battle/support.gd")
 
 var cfg: Dictionary
 var world
@@ -25,6 +26,7 @@ var mission
 var hud
 var post
 var pause_menu
+var support
 var stats := {"shots": 0, "hits": 0, "kills": 0, "score": 0, "friendly_kills": 0, "civ_kills": 0,
 	"inf": 0, "veh": 0, "zombies": 0}
 var sf_laser := {}
@@ -80,6 +82,9 @@ func _build() -> void:
 	ordnance = Ordnance.new()
 	ordnance.battle = self
 	add_child(ordnance)
+	support = Support.new()
+	support.battle = self
+	add_child(support)
 	mission = Mission.new()
 	mission.battle = self
 	add_child(mission)

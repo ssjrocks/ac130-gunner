@@ -212,3 +212,18 @@ func _generate() -> void:
 		y += k5 * (_rand() - y)
 		hitb[i] = y * 3.5 * exp(-t / 0.3) + sin(TAU * 55.0 * t) * 0.5 * exp(-t / 0.2)
 	streams["hit"] = _wav(hitb)
+	# GAU-8: a 2 s burst at 65 rounds a second, so dense it's one low roar
+	var gau := _buf(2.3)
+	for k in 130:
+		_shot(gau, int(k * RATE / 65.0), 0.05, 900.0, 70.0, 0.4)
+	streams["gau8"] = _wav(gau)
+	# sonic boom: a sharp double crack and a long rumble
+	var sb := _buf(2.5)
+	var k6 := _lp_k(400.0)
+	y = 0.0
+	for i in sb.size():
+		var t := float(i) / RATE
+		y += k6 * (_rand() - y)
+		var crack := (exp(-t / 0.01) + exp(-maxf(t - 0.12, 0.0) / 0.01) * (1.0 if t > 0.12 else 0.0)) * _rand()
+		sb[i] = crack * 0.9 + y * 3.0 * exp(-t / 0.8)
+	streams["sonic"] = _wav(sb)

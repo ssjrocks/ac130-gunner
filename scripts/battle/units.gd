@@ -170,7 +170,7 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 	u.aa_t = randf_range(20.0, 20.0 + float(u.d.get("aa_cd", 10.0)))
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh_for(kind, team, opts)
-	mi.material_override = Mats.solid()
+	mi.material_override = Mats.solid() if u.veh else Mats.unit()
 	mi.layers = 2
 	mi.set_instance_shader_parameter("heat", u.heat)
 	if opts.has("tint"):
@@ -415,6 +415,27 @@ func kill(u: U, by_player: bool, wid: String) -> void:
 	battle.on_unit_killed(u, by_player, wid)
 
 
+## Runs from something (a show of force) for dur seconds, then goes back to
+## what it was doing. The infected don't care.
+func panic(u: U, away: Vector3, dur: float) -> void:
+	if not u.alive or u.boarded or u.beh in ["static", "heli", "zombie"] or dur <= 1.0:
+		return
+	var dist := randf_range(150.0, 350.0) * (2.0 if u.veh else 1.0)
+	if u.beh == "civ":
+		u.order = "flee"
+		u.goal = u.pos + away * dist
+		u.data["flee_t"] = dur
+		return
+	if not u.data.has("panic_until"):
+		u.data["panic_prev"] = {"order": u.order, "goal": u.goal, "path": u.path, "path_i": u.path_i, "on_arrive": u.on_arrive}
+	u.data["panic_until"] = time + dur
+	u.order = "flee"
+	u.goal = u.pos + away * dist
+	u.on_arrive = ""
+	u.target = null
+	u.pause_t = 0.0
+
+
 ## Civilians near a blast run away; soldiers keep their heads down.
 func scare(p: Vector3, r: float) -> void:
 	for u in query(p, r):
@@ -508,6 +529,19 @@ func _cleanup() -> void:
 
 
 func _think(u: U) -> void:
+	if u.data.has("panic_until"):
+		if time < float(u.data.panic_until):
+			u.think_t = 1.0
+			u.target = null
+			return
+		var pv: Dictionary = u.data.panic_prev
+		u.order = pv.order
+		u.goal = pv.goal
+		u.path = pv.path
+		u.path_i = pv.path_i
+		u.on_arrive = pv.on_arrive
+		u.data.erase("panic_until")
+		u.data.erase("panic_prev")
 	match u.beh:
 		"soldier":
 			u.think_t = randf_range(0.6, 1.2)
@@ -802,9 +836,18 @@ func _pose(u: U, dt: float) -> void:
 		else:
 			b = b * Basis(Vector3.RIGHT, float(u.data.get("pitch", 0.0)))
 	elif u.moving:
-		var ph := time * (9.0 if u.beh != "zombie" else 5.0) + u.phase
-		p.y += absf(sin(ph)) * 0.06
-		b = b * Basis(Vector3.FORWARD, sin(ph) * 0.06)
+		# gait: about 1.4 strides a second walking, faster running
+		var spd := Vector2(u.vel.x, u.vel.z).length()
+		var ph := time * clampf(spd * 2.6, 4.0, 13.0) + u.phase
+		p.y += absf(sin(ph)) * 0.04
+		b = b * Basis(Vector3.FORWARD, sin(ph) * 0.03)
+		u.node.set_instance_shader_parameter("walk", ph)
+		if not u.data.get("striding", false):
+			u.data["striding"] = true
+			u.node.set_instance_shader_parameter("stride", 0.55)
+	if not u.veh and not u.moving and u.data.get("striding", false):
+		u.data["striding"] = false
+		u.node.set_instance_shader_parameter("stride", 0.0)
 	if u.beh == "zombie":
 		b = b * Basis(Vector3.RIGHT, -0.28 + sin(time * 2.0 + u.phase) * 0.08)
 	if u.d.has("scale"):
@@ -852,6 +895,16 @@ func _heli(u: U, dt: float) -> void:
 			u.data.wait_t = float(u.data.wait_t) + dt
 			want_alt = 0.0
 			spd = 0.0
+			if u.data.has("unload"):
+				# an insertion: put the squad on the ground, then leave
+				if not u.data.get("unloaded", false):
+					u.data["unloaded"] = true
+					for k in u.data.unload:
+						var p: Vector3 = world.free_spot(Vector2(u.pos.x, u.pos.z) + Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized() * 12.0, 8.0)
+						spawn(k, 0, p, "airmob", {"order": "hold"})
+					battle.radio("PALE HORSE 2-1", "Squad's on the ground. Pale Horse lifting.")
+				elif float(u.data.wait_t) > 5.0:
+					u.data["go"] = true
 			if u.data.get("go", false):
 				u.data.state = "depart"
 		"depart":

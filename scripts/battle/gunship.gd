@@ -4,8 +4,10 @@ extends Node3D
 
 const Data := preload("res://scripts/data/data.gd")
 const FOV_WIDE := 55.0
-const ALTS := [2440.0, 3050.0, 3660.0]
-const ALT_FT := ["8,000", "10,000", "12,000"]
+const FT := 0.3048
+const ALT_MIN_FT := 2000
+const ALT_MAX_FT := 20000
+const TERRAIN_CLEARANCE := 200.0
 
 var battle
 var cam: Camera3D
@@ -13,7 +15,11 @@ var orbit_center := Vector3.ZERO
 var orbit_goal := Vector3.ZERO
 var manual_orbit := false
 var radius := 2700.0
-var alt_i := 1
+var alt_ft := 10000          # commanded altitude above the orbit centre
+var alt_floor := 0.0         # lowest safe height over the terrain on the orbit
+var alt_floor_t := 0.0
+var alt_msg_t := -1.0
+var fire_lock := false       # a click used for a support call never fires the gun
 var alt := 3050.0
 var theta := 0.0
 var speed := 77.0
@@ -36,6 +42,7 @@ var wsel := 0
 var supports: Array = []
 var ssel := 0
 var support_mode := false
+var line_ang := 0.0          # compass heading of a strafe-line call (A-10, show of force)
 var lasing := false
 var laser_latch := false
 var has_laser := false
@@ -144,7 +151,11 @@ func set_orbit(p: Vector3, manual: bool) -> void:
 
 func _fly(dt: float) -> void:
 	orbit_center = orbit_center.move_toward(orbit_goal, 45.0 * dt)
-	alt = move_toward(alt, ALTS[alt_i], 15.0 * dt)
+	alt_floor_t -= dt
+	if alt_floor_t <= 0.0:
+		alt_floor_t = 1.0
+		alt_floor = _terrain_floor()
+	alt = move_toward(alt, alt_target(), 25.0 * dt)
 	theta -= speed / radius * dt
 	var gy: float = battle.world.height(orbit_center.x, orbit_center.z)
 	global_position = Vector3(orbit_center.x + cos(theta) * radius, gy + alt, orbit_center.z + sin(theta) * radius)
@@ -161,6 +172,14 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or Game.autotest != "":
 			mouse_delta += ev.relative
 		return
+	if ev is InputEventMouseButton and ev.pressed and line_placement():
+		# while placing a strafe line the wheel turns it instead of zooming
+		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
+			line_ang = fposmod(line_ang + deg_to_rad(10.0), TAU)
+			return
+		if ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			line_ang = fposmod(line_ang - deg_to_rad(10.0), TAU)
+			return
 	if ev is InputEventMouseButton and ev.pressed:
 		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
 			mag_goal = minf(mag_goal * 1.2, mag_max)
@@ -194,18 +213,21 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if ev.is_action_pressed("shift_orbit") and aim_valid:
 		set_orbit(aim_point, true)
 		battle.radio("PILOT", "Copy, shifting orbit to your sensor point.")
-	if ev.is_action_pressed("alt_up") and alt_i < 2:
-		alt_i += 1
-		battle.radio("PILOT", "Climbing to %s feet." % ALT_FT[alt_i])
-	if ev.is_action_pressed("alt_down") and alt_i > 0:
-		alt_i -= 1
-		battle.radio("PILOT", "Descending to %s feet." % ALT_FT[alt_i])
+	if ev.is_action_pressed("alt_up", true) and alt_ft < ALT_MAX_FT:
+		alt_ft = mini(alt_ft + 1000, ALT_MAX_FT)
+		alt_msg_t = 1.0
+	if ev.is_action_pressed("alt_down", true) and alt_ft > ALT_MIN_FT:
+		alt_ft = maxi(alt_ft - 1000, ALT_MIN_FT)
+		alt_msg_t = 1.0
 	if ev.is_action_pressed("support") and not supports.is_empty():
 		support_mode = not support_mode
+		if support_mode:
+			line_ang = deg_to_rad(look_bearing())
 		Sfx.play("click", -6.0)
 	if ev.is_action_pressed("laser_toggle") and has_laser:
 		laser_latch = not laser_latch
 	if ev.is_action_pressed("fire") and support_mode:
+		fire_lock = true
 		_call_support()
 	if ev.is_action_pressed("map"):
 		battle.hud.toggle_map()
@@ -216,6 +238,34 @@ func _unhandled_input(ev: InputEvent) -> void:
 		Game.settings.iff = not Game.settings.get("iff", true)
 	if ev.is_action_pressed("help"):
 		battle.hud.show_help = not battle.hud.show_help
+
+
+## Height the aircraft actually flies at: the commanded altitude, raised if
+## the terrain under the orbit needs it.
+func alt_target() -> float:
+	return maxf(alt_ft * FT, alt_floor)
+
+
+func alt_text() -> String:
+	return _commas(int(round(alt / FT / 100.0)) * 100)
+
+
+static func _commas(n: int) -> String:
+	var s := str(n)
+	return s.substr(0, s.length() - 3) + "," + s.substr(s.length() - 3) if s.length() > 3 else s
+
+
+## Highest ground on the orbit circle, as height above the orbit centre
+## plus clearance.
+func _terrain_floor() -> float:
+	var w = battle.world
+	var gy: float = w.height(orbit_center.x, orbit_center.z)
+	var top := gy
+	for k in 36:
+		var a := TAU * k / 36.0
+		for r in [radius * 0.85, radius, radius * 1.15]:
+			top = maxf(top, w.height(orbit_center.x + cos(a) * r, orbit_center.z + sin(a) * r))
+	return top - gy + TERRAIN_CLEARANCE
 
 
 func _cycle(dir: int) -> void:
@@ -283,6 +333,7 @@ func _process(dt: float) -> void:
 	_update_camera(dt)
 	if not battle.ended:
 		_weapons(dt)
+	_altitude_radio(dt)
 	_predict(dt)
 	flare_cd -= dt
 	if auto_flares and flare_cd <= 0.0:
@@ -292,7 +343,21 @@ func _process(dt: float) -> void:
 				break
 
 
+func support_def() -> Dictionary:
+	if supports.is_empty():
+		return {}
+	return supports[ssel].def
+
+
+func line_placement() -> bool:
+	return support_mode and support_def().get("placement", "") == "line"
+
+
 func _poll_input(dt: float) -> void:
+	if line_placement():
+		var rot := Input.get_axis("rotate_left", "rotate_right")
+		if absf(rot) > 0.1:
+			line_ang = fposmod(line_ang + rot * 1.6 * dt, TAU)
 	var z := Input.get_axis("zoom_out", "zoom_in")
 	if absf(z) > 0.05:
 		mag_goal = clampf(mag_goal * exp(z * 2.2 * dt), 1.0, mag_max)
@@ -401,7 +466,9 @@ func _predict(dt: float) -> void:
 		var r := maxf(40.0, view_height_m() * 0.6)
 		var near: Array = []
 		for u in battle.units.query(aim_point, r):
-			if u.alive and u.team == 1 and u.beh != "static" and Vector2(u.pos.x - aim_point.x, u.pos.z - aim_point.z).length() < r:
+			# everyone, not just enemies: the computer predicts motion, it
+			# doesn't tell friend from foe or find hidden targets
+			if u.alive and u.beh != "static" and u.beh != "heli" and Vector2(u.pos.x - aim_point.x, u.pos.z - aim_point.z).length() < r:
 				near.append(u)
 		near.sort_custom(func(a, b): return a.pos.distance_squared_to(aim_point) < b.pos.distance_squared_to(aim_point))
 		for i in mini(near.size(), 12):
@@ -432,6 +499,18 @@ func in_gimbal() -> bool:
 	return absf(left.signed_angle_to(h.normalized(), Vector3.UP)) < deg_to_rad(79.0)
 
 
+func _altitude_radio(dt: float) -> void:
+	if alt_msg_t < 0.0:
+		return
+	alt_msg_t -= dt
+	if alt_msg_t < 0.0:
+		var want := alt_ft * FT
+		if want < alt_floor - 1.0:
+			battle.radio("PILOT", "Terrain! Can't go below %s feet here." % _commas(int(round(alt_floor / FT / 100.0)) * 100))
+		else:
+			battle.radio("PILOT", "%s to %s feet." % ["Climbing" if want > alt else "Descending", _commas(alt_ft)])
+
+
 func _weapons(dt: float) -> void:
 	for w in weapons:
 		w.cd = maxf(float(w.cd) - dt, -0.1)
@@ -447,7 +526,9 @@ func _weapons(dt: float) -> void:
 					if w.id in ["w_105", "w_40", "w_30"]:
 						Sfx.play("reload", -10.0)
 	var cur: Dictionary = weapons[wsel]
-	var firing: bool = not support_mode and not battle.hud.map_big and (Input.is_action_pressed("fire") or (bot and bot_t > 0.0))
+	if fire_lock and not Input.is_action_pressed("fire"):
+		fire_lock = false
+	var firing: bool = not support_mode and not fire_lock and not battle.hud.map_big and (Input.is_action_pressed("fire") or (bot and bot_t > 0.0))
 	var can: bool = firing and cur.reload_t <= 0.0 and int(cur.ammo) > 0 and aim_valid
 	if can:
 		while float(cur.cd) <= 0.0 and int(cur.ammo) > 0:
@@ -520,6 +601,26 @@ func _call_support() -> void:
 	if def.kind == "illum" and battle.world.night < 0.3:
 		battle.hud.message("ILLUM ONLY AT NIGHT", 1.5)
 		return
+	match def.kind:
+		"gunrun", "sof", "qrf", "heli":
+			if def.kind == "qrf" and not battle.world.map.get("sites", {}).has("qrf"):
+				battle.hud.message("NO QRF BASE ON THIS MAP", 1.5)
+				return
+			s.charges = int(s.charges) - 1
+			match def.kind:
+				"gunrun":
+					battle.support.gun_run(aim_point, line_ang, def)
+				"sof":
+					battle.support.show_of_force(aim_point, line_ang, def)
+				"qrf":
+					battle.support.send_qrf(aim_point)
+				"heli":
+					battle.support.insert_squad(aim_point)
+			if def.radio != "":
+				battle.radio("STRIKE", def.radio % int(def.tot))
+			Sfx.play("lock", -4.0)
+			support_mode = false
+			return
 	s.charges = int(s.charges) - 1
 	var target := aim_point
 	var tot: float = def.tot

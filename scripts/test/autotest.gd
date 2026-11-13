@@ -48,6 +48,18 @@ func begin(s: String) -> void:
 		f.close()
 		get_tree().quit()
 		return
+	if parts[0] == "gfx":
+		flow_mode = true
+		_gfx_test(parts[1] if parts.size() > 1 else "kharim", parts[2] if parts.size() > 2 else "day")
+		return
+	if parts[0] == "support":
+		flow_mode = true
+		_support_test(parts[1], parts[2] if parts.size() > 2 else "kharim")
+		return
+	if parts[0] == "alt":
+		flow_mode = true
+		_alt_test(parts[1])
+		return
 	if parts[0] == "predict":
 		flow_mode = true
 		_predict_test()
@@ -311,16 +323,37 @@ func _input_test(b) -> void:
 	await _frames(2)
 	await _act("support")
 	_check("support mode", g.support_mode)
+	g.ssel = 0
 	var ch0: int = g.supports[0].charges
 	var gd0: int = b.ordnance.guided.size()
-	await _act("fire")
+	await _act("weapon_1")
+	g.wsel = 0
+	var shots_before: int = g.shots
+	# designate with the trigger and keep holding it, as a player would
+	var press := InputEventAction.new()
+	press.action = "fire"
+	press.pressed = true
+	Input.parse_input_event(press)
+	Input.action_press("fire")
+	await _frames(45)
 	_check("support call", g.supports[0].charges == ch0 - 1 and b.ordnance.guided.size() > gd0, g.supports[0].def.short)
+	_check("held trigger after a call doesn't fire the gun", g.shots == shots_before, "%d rounds" % (g.shots - shots_before))
+	Input.action_release("fire")
+	var rel := InputEventAction.new()
+	rel.action = "fire"
+	rel.pressed = false
+	Input.parse_input_event(rel)
+	await _frames(3)
+	Input.action_press("fire")
+	await _frames(15)
+	Input.action_release("fire")
+	_check("next trigger pull fires again", g.shots > shots_before, "%d rounds" % (g.shots - shots_before))
 	var f0: int = g.flares
 	await _act("flares")
 	_check("flares", g.flares == f0 - 1)
-	var a0: int = g.alt_i
+	var a0: int = g.alt_ft
 	await _act("alt_up")
-	_check("climb", g.alt_i == mini(a0 + 1, 2))
+	_check("climb", g.alt_ft == mini(a0 + 1000, 20000), "%d -> %d ft" % [a0, g.alt_ft])
 	await _act("map")
 	_check("map opens", b.hud.map_big)
 	await _act("map")
@@ -789,9 +822,22 @@ func _predict_test() -> void:
 	var man = b.units.spawn("rifle", 1, start, "e", {"order": "move", "path": [start + Vector3(300, 0, 120)], "speed_mul": 1.4})
 	for u in [truck, man]:
 		u.hp = 1.0e6
+	var civ = b.units.spawn("civ", 2, road[0] + Vector3(15, 0, 0), "c", {"order": "move", "path": [road[0] + Vector3(200, 0, 0)]})
+	var pal = b.units.spawn("soldier", 0, road[0] + Vector3(-15, 0, 0), "f", {"order": "move", "path": [road[0] + Vector3(-200, 0, 0)]})
+	civ.hp = 1.0e6
+	pal.hp = 1.0e6
 	await _frames(60)
 	await _act("predictor")
 	print("[predict] predictor on: ", g.predict_on)
+	g.aim_point = truck.pos
+	g.aim_valid = true
+	await _frames(5)
+	var teams := {0: 0, 1: 0, 2: 0}
+	for x in g.predictions:
+		for u in [truck, man, civ, pal]:
+			if x.from.distance_to(u.pos) < 3.0:
+				teams[u.team] += 1
+	print("[predict] marked near the aim point: %d enemy, %d civilian, %d friendly" % [teams[1], teams[2], teams[0]])
 	for target in [truck, man]:
 		for wid in ["w_762", "w_105"]:
 			for i in g.weapons.size():
@@ -843,4 +889,248 @@ func _predict_test() -> void:
 	while g.pred_heat > 0.0 and t - t4 < 200.0:
 		await get_tree().process_frame
 	print("[predict] from 50%% heat, switched off: cooled to 0 in %.1f s" % (t - t4))
+	get_tree().quit()
+
+
+## Commanded altitude 2,000 then 20,000 ft: actual height, and the lowest
+## clearance over terrain anywhere on the orbit.
+func _alt_test(map_id: String) -> void:
+	Game.settings.loadout = "all"
+	Game.start_mission(Missions.skirmish_cfg(map_id, "cas", "day", 1))
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.gunship.bot = false
+	b.gunship.plane_dmg = 0.0
+	b.mission.set_process(false)
+	var g = b.gunship
+	for want in [2000, 20000]:
+		g.alt_ft = want
+		var clear := 1.0e9
+		var t0 := t
+		while t - t0 < 300.0:
+			await get_tree().process_frame
+			var p: Vector3 = g.global_position
+			clear = minf(clear, p.y - b.world.height(p.x, p.z))
+		print("[alt] %s commanded %d ft: flying %s ft above the orbit centre, lowest clearance over terrain %.0f m" % [map_id, want, g.alt_text(), clear])
+	get_tree().quit()
+
+
+## Each new support call, checked by what it does on the ground.
+func _support_test(kind: String, map_id: String) -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.skirmish_cfg(map_id, "cas", "day", 1)
+	cfg["civ"] = 0.0
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	g.plane_dmg = 0.0
+	for u in b.units.list.duplicate():
+		if u.group != "garrison":
+			b.units.remove_unit(u)
+	var w = b.world
+	var c: Vector3 = w.to3(Vector2(400, -600))
+	for k in 30:
+		var cc := Vector2(randf_range(-1500, 1500), randf_range(-1500, 1500))
+		if w.ground_ok(cc) and not w.in_building(cc, 40.0):
+			c = w.to3(cc)
+			break
+	var ang := 1.0
+	var dir := Vector3(sin(ang), 0, -cos(ang))
+	match kind:
+		"a10":
+			var on_line: Array = []
+			for k in 12:
+				var p: Vector3 = c + dir * randf_range(-130.0, 130.0) + dir.cross(Vector3.UP) * randf_range(-6.0, 6.0)
+				on_line.append(b.units.spawn("technical" if k % 4 == 0 else "rifle", 1, p, "e", {"order": "hold"}))
+			var off_line: Array = []
+			for k in 6:
+				var p2: Vector3 = c + dir.cross(Vector3.UP) * randf_range(60.0, 100.0) + dir * randf_range(-100.0, 100.0)
+				off_line.append(b.units.spawn("rifle", 1, p2, "e2", {"order": "hold"}))
+			for u in on_line + off_line:
+				u.halted = true
+			b.support.gun_run(c, ang, b.gunship.Data.SUPPORT["s_a10"])
+			await _wait_s(22.0)
+			var k1 := 0
+			for u in on_line:
+				if not u.alive:
+					k1 += 1
+			var k2 := 0
+			for u in off_line:
+				if not u.alive:
+					k2 += 1
+			print("[support] A-10: %d of 12 on the strafe line killed, %d of 6 standing 60-100 m off the line killed" % [k1, k2])
+		"sof":
+			var grp: Array = b.units.squad(["rifle", "rifle", "emg", "rifle", "rpg", "rifle", "rifle", "rifle", "rifle", "rifle", "rifle", "rifle"], 1, c + dir.cross(Vector3.UP) * 70.0, 25.0, "e", {"order": "hold"})
+			var far: Array = b.units.squad(["rifle", "rifle", "rifle"], 1, c + dir.cross(Vector3.UP) * 700.0, 10.0, "far", {"order": "hold"})
+			var start := {}
+			for u in grp + far:
+				start[u.id] = u.pos
+			b.support.show_of_force(c, ang, b.gunship.Data.SUPPORT["s_sof"])
+			await _wait_s(20.0)
+			var fled := 0
+			var dirs: Array = []
+			for u in grp:
+				var mv: Vector3 = u.pos - start[u.id]
+				if u.order == "flee" or mv.length() > 20.0:
+					fled += 1
+				dirs.append(rad_to_deg(atan2(mv.x, -mv.z)))
+			var far_moved := 0
+			for u in far:
+				if u.pos.distance_to(start[u.id]) > 5.0:
+					far_moved += 1
+			dirs.sort()
+			print("[support] show of force: %d of 12 near the path ran (headings %d..%d deg), %d of 3 standing 700 m away moved" % [fled, int(dirs[0]), int(dirs[dirs.size() - 1]), far_moved])
+			await _wait_s(70.0)
+			var back := 0
+			for u in grp:
+				if u.order == "hold" and not u.data.has("panic_until"):
+					back += 1
+			print("[support] show of force: 70 s later %d of 12 have stopped running and gone back to their orders" % back)
+		"qrf":
+			var target: Vector3 = c
+			var base: Vector3 = w.site("qrf")
+			var t0 := t
+			b.support.send_qrf(target)
+			var path: Array = b.units.members("qrf1")[0].path
+			var on_road := 0
+			for p in path:
+				if w.road_at(Vector2(p.x, p.z)) > 0.3:
+					on_road += 1
+			print("[support] QRF: %d vehicles, route %d points, %d%% on roads, %.0f m straight-line" % [b.units.count("qrf1"), path.size(), int(100.0 * on_road / maxf(path.size(), 1)), base.distance_to(target)])
+			while t - t0 < 900.0:
+				await _wait_s(5.0)
+				if int(t - t0) % 60 < 5:
+					for u in b.units.members("qrf1"):
+						if u.veh:
+							print("   %s path %d/%d moving=%s order=%s pos=%s detour=%.1f leader=%s" % [u.kind, u.path_i, u.path.size(), u.moving, u.order, str(u.pos.round()), float(u.data.get("detour_t", 0.0)), "none" if u.leader == null else "%s %d" % [u.leader.order, u.leader.path_i]])
+				var inf := 0
+				for u in b.units.members("qrf1"):
+					if not u.veh:
+						inf += 1
+				if inf >= 25:
+					break
+			var near := 0
+			var inf2 := 0
+			for u in b.units.members("qrf1"):
+				if not u.veh:
+					inf2 += 1
+					if u.pos.distance_to(target) < 120.0:
+						near += 1
+			print("[support] QRF: after %.0f s, %d infantry dismounted, %d of them within 120 m of the objective" % [t - t0, inf2, near])
+		"heli":
+			var t1 := t
+			b.support.insert_squad(c)
+			var h = b.units.members("airmob_heli")[0]
+			var landed := -1.0
+			while t - t1 < 240.0:
+				await get_tree().process_frame
+				if landed < 0.0 and h.data.get("state", "") == "wait":
+					landed = t - t1
+				if h.data.get("state", "") == "gone":
+					break
+			var sq: Array = b.units.members("airmob")
+			var dist := 0.0
+			for u in sq:
+				dist = maxf(dist, u.pos.distance_to(c))
+			print("[support] Black Hawk: landed after %.0f s, %d soldiers on the ground (all within %.0f m of the call), helicopter %s after %.0f s" % [landed, sq.size(), dist, h.data.get("state", ""), t - t1])
+	get_tree().quit()
+
+
+func _wait_s(secs: float) -> void:
+	var t0 := t
+	while t - t0 < secs:
+		await get_tree().process_frame
+
+
+## Close-up screenshots of people, vehicles, buildings and the new jets.
+func _gfx_test(map_id: String, tod: String) -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.skirmish_cfg(map_id, "cas", tod, 1)
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	g.track_unit = null
+	g.plane_dmg = 0.0
+	var w = b.world
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	# an open spot near the orbit centre for the vehicle line-up
+	var spot: Vector3 = g.orbit_center
+	for k in 60:
+		var c2 := Vector2(g.orbit_center.x, g.orbit_center.z) + Vector2(randf_range(-600, 600), randf_range(-600, 600))
+		if w.ground_ok(c2) and not w.in_building(c2, 45.0) and w.road_at(c2) < 0.1:
+			spot = w.to3(c2)
+			break
+	var kinds := ["tank", "btr", "truck", "technical", "humvee", "mrap", "suv", "car", "zu23", "sam"]
+	for i in kinds.size():
+		var p: Vector3 = spot + Vector3((i - 4.5) * 9.0, 0, 0)
+		var u = b.units.spawn(kinds[i], 1 if i < 4 or i > 7 else 0, p, "show", {"order": "hold", "heading": 0.3})
+		u.hp = 1.0e6
+	var walkers: Array = b.units.squad(["rifle", "rifle", "rpg", "emg", "civ", "civ", "civ", "soldier", "zombie", "survivor"], 1, spot + Vector3(0, 0, 30), 6.0, "walk", {"order": "move"})
+	for u in walkers:
+		u.team = 2
+		u.path = [u.pos + Vector3(0, 0, 300)]
+		u.path_i = 0
+		u.hp = 1.0e6
+	var shots := [
+		["gfx_vehicles_60x", spot, 60.0], ["gfx_vehicles_150x", spot + Vector3(-15, 0, 0), 150.0],
+		["gfx_people_150x", null, 150.0],
+	]
+	for sh in shots:
+		var p = sh[1]
+		if p == null:
+			p = walkers[0].pos
+			g.track_unit = walkers[0]
+		g.aim_point = p
+		g.aim_valid = true
+		g.mag_max = 150.0
+		g.mag = sh[2]
+		g.mag_goal = sh[2]
+		await _frames(8)
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(shots_dir.path_join(sh[0] + ".png"))
+		print("[gfx] saved ", sh[0])
+	g.track_unit = null
+	# buildings: the mosque, a city block, a few houses
+	var picks := {}
+	for bd in w.buildings:
+		if not picks.has(bd.kind):
+			picks[bd.kind] = bd
+	for kind in ["mosque", "tall", "house"]:
+		if picks.has(kind):
+			var bd: Dictionary = picks[kind]
+			g.aim_point = Vector3(bd.c.x, bd.c.y, bd.c.z)
+			g.mag = 40.0 if kind != "house" else 70.0
+			g.mag_goal = g.mag
+			await _frames(8)
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png(shots_dir.path_join("gfx_bld_%s.png" % kind))
+			print("[gfx] saved building ", kind)
+	# the jets: an A-10 run and a show of force over the line-up
+	b.support.gun_run(spot, 1.2, b.gunship.Data.SUPPORT["s_a10"])
+	g.aim_point = spot
+	g.mag = 6.0
+	g.mag_goal = 6.0
+	await _wait_s(15.4)
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots_dir.path_join("gfx_a10.png"))
+	await _wait_s(1.5)
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots_dir.path_join("gfx_a10_impacts.png"))
+	b.support.show_of_force(spot + Vector3(200, 0, 0), 2.6, b.gunship.Data.SUPPORT["s_sof"])
+	g.aim_point = spot + Vector3(200, 0, 0)
+	g.mag = 3.0
+	g.mag_goal = 3.0
+	await _wait_s(16.0)
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots_dir.path_join("gfx_sof.png"))
+	print("[gfx] done")
 	get_tree().quit()

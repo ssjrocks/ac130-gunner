@@ -21,8 +21,11 @@ code, with no asset files.
   its own time of flight, dispersion, blast and armour penetration.
 - **Onboard guided weapons:** Griffin laser missiles and SDB laser-guided bombs.
 - **Support calls:** MQ-9 Hellfire (laser), F/A-18 JDAM (GPS) and GBU-12
-  (laser), Tomahawk cruise missile with a time-on-target countdown, and
-  illumination rounds at night. Laser-guided weapons can also ride the special
+  (laser), Tomahawk cruise missile with a time-on-target countdown,
+  illumination rounds at night, an A-10 gun run and a show of force (a low,
+  fast jet pass that sends enemies running) placed as a strafe line you turn
+  with the mouse wheel, a ground QRF platoon that drives out from the map's
+  QRF base, and a Black Hawk that lands a squad where you point. Laser-guided weapons can also ride the special
   forces team's laser.
 - **Threats to the aircraft:** MANPADS, SAM sites and triple-A. Flares, with
   timing that matters. Altitude choice: higher is safer but less accurate.
@@ -63,10 +66,11 @@ code, with no asset files.
 | Weapon | Q / E, 1-6 | LB / RB |
 | Sensor mode | V | Y |
 | Support calls (fire calls one) | G | X |
+| Turn a strafe line | Wheel, `,` `.` | Left stick |
 | Flares | F | B |
 | Track target | C | A |
 | Move orbit to sensor point | O | R3 |
-| Climb / descend | PgUp / PgDn | D-pad |
+| Climb / descend (2,000-20,000 ft) | PgUp / PgDn | D-pad up/down |
 | Map (click to move the orbit) | Tab | Back |
 | Friendly markers | I | |
 | Target prediction | P | D-pad left |
