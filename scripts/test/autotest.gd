@@ -48,6 +48,18 @@ func begin(s: String) -> void:
 		f.close()
 		get_tree().quit()
 		return
+	if parts[0] == "thermal":
+		flow_mode = true
+		_thermal_test()
+		return
+	if parts[0] == "pickup":
+		flow_mode = true
+		_pickup_test(int(parts[1]))
+		return
+	if parts[0] == "illum":
+		flow_mode = true
+		_illum_test()
+		return
 	if parts[0] == "gfx":
 		flow_mode = true
 		_gfx_test(parts[1] if parts.size() > 1 else "kharim", parts[2] if parts.size() > 2 else "day")
@@ -157,6 +169,24 @@ func _process(dt: float) -> void:
 		print("[autotest] t=%.0f state=%s friendly=%d enemy=%d near=%d civ=%d parts=%d shells=%d score=%d hp=%.0f frame=%.1fms" % [
 			t, b.mission.state, u.count_team(0), u.count_team(1), u.enemies_near(b.mission.focus, 450.0), u.count_team(2), b.effects.parts.size(),
 			b.ordnance.shells.size(), b.stats.score + b.mission.score_bonus, b.gunship.hp, ms])
+		if b.mission.type == "zombie":
+			# how bunched up the infected are: neighbours within 30 m, and
+			# the share standing alone
+			var zs: Array = []
+			for zu in b.units.list:
+				if zu.alive and zu.beh == "zombie":
+					zs.append(zu)
+			var nb := 0
+			var alone := 0
+			for zu in zs:
+				var k := 0
+				for v in b.units.query(zu.pos, 30.0):
+					if v != zu and v.alive and v.beh == "zombie" and v.pos.distance_to(zu.pos) < 30.0:
+						k += 1
+				nb += k
+				if k == 0:
+					alone += 1
+			print("   infected %d: average %.1f others within 30 m, %d%% alone" % [zs.size(), float(nb) / maxf(zs.size(), 1), int(100.0 * alone / maxf(zs.size(), 1))])
 		if b.mission.type == "strike":
 			var smi = b.mission
 			var hs = smi.data.get("heli")
@@ -1133,4 +1163,139 @@ func _gfx_test(map_id: String, tod: String) -> void:
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(shots_dir.path_join("gfx_sof.png"))
 	print("[gfx] done")
+	get_tree().quit()
+
+
+## Night: the ground before an illumination round and while it burns, and
+## the flare's height when it burns out.
+func _illum_test() -> void:
+	Game.settings.loadout = "all"
+	Game.start_mission(Missions.skirmish_cfg("kharim", "cas", "night", 1))
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	g.track_unit = null
+	g.plane_dmg = 0.0
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	var c: Vector3 = b.world.site("hq")
+	g.aim_point = c
+	g.aim_valid = true
+	g.mag = 4.0
+	g.mag_goal = 4.0
+	await _frames(10)
+	for shot in [["illum_0_before", 0.0], ["illum_1_lit", 20.0], ["illum_2_late", 45.0]]:
+		if shot[0] == "illum_1_lit":
+			g.support_mode = true
+			for i in g.supports.size():
+				if g.supports[i].id == "s_illum":
+					g.ssel = i
+			g._call_support()
+		await _wait_s(float(shot[1]) - (20.0 if shot[0] == "illum_2_late" else 0.0))
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(shots_dir.path_join(shot[0] + ".png"))
+		var y := -1.0
+		for it in b.ordnance.illum:
+			y = it.l.position.y - b.world.height(it.l.position.x, it.l.position.z)
+		print("[illum] %s: flare %s" % [shot[0], "not lit" if y < 0.0 else "%.0f m above the ground" % y])
+	var last := 0.0
+	while not b.ordnance.illum.is_empty():
+		var it2: Dictionary = b.ordnance.illum[0]
+		last = it2.l.position.y - b.world.height(it2.l.position.x, it2.l.position.z)
+		await get_tree().process_frame
+	print("[illum] burned out %.0f m above the ground" % last)
+	get_tree().quit()
+
+
+## Called-in troops get lifted out when the mission's extraction comes.
+func _pickup_test(m: int) -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.campaign_cfg(m)
+	cfg["mode"] = "skirmish"
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.gunship.plane_dmg = 0.0
+	await _wait_s(3.0)
+	var near: Vector3 = b.mission.site if b.mission.site != Vector3.ZERO else b.mission.focus
+	b.support.send_qrf(near + Vector3(150, 0, 80))
+	b.support.insert_squad(near + Vector3(-120, 0, -60))
+	var main_t := -1.0
+	var lift_t := -1.0
+	var t0 := t
+	var next_dbg := 0.0
+	while not b.ended and t - t0 < 900.0:
+		await get_tree().process_frame
+		if lift_t > 0.0 and t - t0 > next_dbg:
+			next_dbg = t - t0 + 15.0
+			for h in b.units.list:
+				if h.kind == "heli" and h.group == "lift_heli":
+					var n_near := 0
+					var n_far := 0
+					var orders := {}
+					for v in b.units.list:
+						if v.alive and v.id in h.data.pickup:
+							orders[v.order] = orders.get(v.order, 0) + 1
+							if v.pos.distance_to(h.pos) < 60.0:
+								n_near += 1
+							else:
+								n_far += 1
+					print("   t=%.0f lift %s at %s, lz dist %.0f, passengers alive %d (near %d, far %d) orders %s" % [t - t0, h.data.get("state", ""), str(h.pos.round()), Vector2(h.pos.x - h.data.lz.x, h.pos.z - h.data.lz.z).length(), n_near + n_far, n_near, n_far, str(orders)])
+		for u in b.units.list:
+			if u.kind == "heli" and u.group == "heli" and main_t < 0.0:
+				main_t = t - t0
+			if u.kind == "heli" and u.group == "lift_heli" and lift_t < 0.0:
+				lift_t = t - t0
+	var aboard := 0
+	var left := 0
+	for u in b.units.list:
+		if u.group.begins_with("qrf") or u.group == "airmob":
+			if u.boarded:
+				aboard += 1
+			elif u.alive and not u.veh:
+				left += 1
+	var lifts := 0
+	for u in b.units.list:
+		if u.kind == "heli" and u.group == "lift_heli":
+			lifts += 1
+	print("[pickup] mission %s at %.0f s (%s). Extraction launched at %.0f s, %d pickup helicopter(s) launched at %.0f s. Called-in troops: %d aboard, %d still on the ground when it ended" % [b.mission.state, t - t0, b.mission.result_text, main_t, lifts, lift_t, aboard, left])
+	get_tree().quit()
+
+
+## A row of people in thermal: soldier, civilian, enemy, survivor, infected.
+func _thermal_test() -> void:
+	Game.settings.loadout = "all"
+	Game.start_mission(Missions.skirmish_cfg("flats", "cas", "night", 1))
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	g.track_unit = null
+	for u in b.units.list.duplicate():
+		b.units.remove_unit(u)
+	var c: Vector3 = b.world.to3(Vector2(300, 600))
+	var kinds := ["soldier", "civ", "zombie", "rifle", "zombie", "survivor", "brute"]
+	for i in kinds.size():
+		var u = b.units.spawn(kinds[i], 1 if kinds[i] in ["zombie", "brute", "rifle"] else 0, c + Vector3((i - 3) * 3.0, 0, 0), "row", {"order": "hold", "heading": PI})
+		u.halted = true
+		u.data["hide_r"] = 0.0
+		u.d = u.d.duplicate()
+		u.d["range"] = 0.0
+	g.aim_point = c
+	g.aim_valid = true
+	g.mag_max = 150.0
+	g.mag = 120.0
+	g.mag_goal = 120.0
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	for m in [2, 3]:
+		b.set_view_mode(m)
+		await _frames(8)
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("thermal_%d.png" % m))
+	print("[thermal] saved")
 	get_tree().quit()

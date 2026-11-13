@@ -226,8 +226,8 @@ static func _infantry(id: String) -> Mesh:
 		zombie = true
 		var rags := [Color(0.35, 0.33, 0.3), Color(0.3, 0.35, 0.4), Color(0.45, 0.35, 0.3), Color(0.5, 0.48, 0.42)]
 		var r: Color = rags[rng.randi() % rags.size()]
-		top = _c(r.r, r.g, r.b, 0.45)
-		pants = _c(r.r * 0.7, r.g * 0.7, r.b * 0.7, 0.45)
+		top = _c(r.r, r.g, r.b, 0.5)
+		pants = _c(r.r * 0.7, r.g * 0.7, r.b * 0.7, 0.5)
 		skin = Color(0.5, 0.55, 0.45)
 		hat = "hair"
 		weapon = 0
@@ -239,7 +239,7 @@ static func _infantry(id: String) -> Mesh:
 	elif id.begins_with("inf_pilot"):
 		top = _c(0.42, 0.46, 0.36); pants = _c(0.42, 0.46, 0.36); hat = "helmet"; hat_col = _c(0.4, 0.43, 0.36, 0.45)
 		weapon = 0
-	var skin_c := Color(skin.r, skin.g, skin.b, 0.6 if not zombie else 0.46)
+	var skin_c := Color(skin.r, skin.g, skin.b, 0.6 if not zombie else 0.7)
 	var st := _st()
 	_uv2_on = true
 	var hip := 0.92

@@ -195,6 +195,7 @@ func hold_light(p: Vector3, energy: float, rng: float, col: Color) -> OmniLight3
 
 func release_light(l: OmniLight3D) -> void:
 	if l:
+		l.omni_attenuation = 1.0
 		l.visible = false
 		light_pool.append(l)
 

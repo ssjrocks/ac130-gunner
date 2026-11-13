@@ -19,8 +19,9 @@ const KINDS := {
 	"rpg": {"mesh": "enemyrpg", "hp": 100.0, "speed": 2.8, "run": 4.6, "range": 330.0, "dmg": 170.0, "rof": 0.12, "acc": 0.35, "pen": 2, "explosive": 3.0, "av": true, "heat": 0.85, "score": 20},
 	"manpads": {"mesh": "enemyrpg", "hp": 100.0, "speed": 2.8, "run": 4.6, "range": 0.0, "aa": "manpads", "aa_range": 4300.0, "aa_cd": 30.0, "heat": 0.85, "score": 40},
 	"civ": {"mesh": "civ", "hp": 60.0, "speed": 1.3, "run": 4.2, "range": 0.0, "beh": "civ", "heat": 0.85, "score": 0},
-	"zombie": {"mesh": "zombie", "hp": 75.0, "speed": 1.4, "run": 3.9, "range": 1.8, "dmg": 20.0, "rof": 0.9, "acc": 0.7, "melee": true, "beh": "zombie", "heat": 0.4, "score": 5},
-	"brute": {"mesh": "zombie", "hp": 300.0, "speed": 1.8, "run": 4.4, "range": 2.2, "dmg": 45.0, "rof": 0.8, "acc": 0.8, "melee": true, "beh": "zombie", "heat": 0.45, "score": 25, "scale": 1.35},
+	# the infected: a rage virus that runs them hot and makes them sprint once they see prey
+	"zombie": {"mesh": "zombie", "hp": 75.0, "speed": 1.8, "run": 6.0, "range": 1.8, "dmg": 20.0, "rof": 0.9, "acc": 0.7, "melee": true, "beh": "zombie", "heat": 1.0, "score": 5},
+	"brute": {"mesh": "zombie", "hp": 300.0, "speed": 2.0, "run": 5.0, "range": 2.2, "dmg": 45.0, "rof": 0.8, "acc": 0.8, "melee": true, "beh": "zombie", "heat": 1.0, "score": 25, "scale": 1.35},
 	"technical": {"mesh": "technical", "hp": 380.0, "speed": 13.0, "range": 850.0, "dmg": 6.0, "rof": 5.0, "acc": 0.06, "armor": 1, "veh": true, "r": 2.6, "heat": 0.75, "score": 60},
 	"truck": {"mesh": "truck", "hp": 320.0, "speed": 12.0, "range": 0.0, "armor": 1, "veh": true, "r": 3.6, "heat": 0.72, "score": 40},
 	"btr": {"mesh": "btr", "hp": 1200.0, "speed": 12.0, "range": 1000.0, "dmg": 14.0, "rof": 2.5, "acc": 0.1, "armor": 2, "veh": true, "r": 3.6, "heat": 0.8, "score": 150},
@@ -558,6 +559,7 @@ func _think(u: U) -> void:
 			u.think_t = randf_range(0.35, 0.7)
 			if u.target == null or not u.target.alive or (u.target.pos - u.pos).length() > 120.0:
 				u.target = _find_target(u, 220.0, false)
+			_flock(u)
 		"civ":
 			u.think_t = randf_range(1.0, 2.0)
 			if u.order == "flee":
@@ -589,6 +591,35 @@ func can_see(a: U, b: U) -> bool:
 
 ## Nearest hostile in range that the unit can actually see. need_los false
 ## is for the infected, who go by sound and smell.
+## The infected pull toward each other: a steer toward the middle of the
+## others within 120 m (stronger the more there are), and away from any
+## standing right on top of them.
+func _flock(u: U) -> void:
+	if Game.no_flock:
+		return
+	var sum := Vector3.ZERO
+	var n := 0
+	var push := Vector3.ZERO
+	for v in query(u.pos, 120.0):
+		if v == u or not v.alive or v.beh != "zombie":
+			continue
+		var rel: Vector3 = v.pos - u.pos
+		rel.y = 0.0
+		var dist := rel.length()
+		if dist > 120.0:
+			continue
+		sum += rel
+		n += 1
+		if dist < 1.5 and dist > 0.01:
+			push -= rel / dist
+	if n == 0:
+		u.data.erase("flock")
+		return
+	var pull := (sum / n)
+	var w := clampf(n / 4.0, 0.4, 1.0) * clampf(pull.length() / 15.0, 0.0, 1.0)
+	u.data["flock"] = pull.normalized() * w * 1.4 + push * 0.5
+
+
 func _find_target(u: U, rng: float, need_los := true) -> U:
 	var cands: Array
 	if rng > 450.0:
@@ -762,7 +793,11 @@ func _move(u: U, dt: float) -> void:
 	spd *= u.speed_mul
 	if u.supp_t > 0.0 and not u.veh:
 		spd *= 0.4
-	var np := u.pos + to / d * minf(spd * dt, d)
+	var dirv := to / d
+	if u.beh == "zombie" and d > 40.0 and u.data.has("flock"):
+		# drift toward the pack while still heading for the target
+		dirv = (dirv + u.data.flock).normalized()
+	var np := u.pos + dirv * minf(spd * dt, d)
 	if u.climb_t > 0.0:
 		u.climb_t -= dt
 	else:
@@ -895,6 +930,22 @@ func _heli(u: U, dt: float) -> void:
 			u.data.wait_t = float(u.data.wait_t) + dt
 			want_alt = 0.0
 			spd = 0.0
+			if u.data.has("pickup"):
+				# a lift: called-in troops walk over and climb aboard
+				var waiting := 0
+				for v in list:
+					if v.alive and v.id in u.data.pickup:
+						if v.pos.distance_to(u.pos) < 9.0:
+							v.boarded = true
+							v.alive = false
+							v.node.visible = false
+						else:
+							waiting += 1
+							v.order = "board"
+							v.goal = u.pos
+							v.target = null
+				if waiting == 0 or float(u.data.wait_t) > 50.0:
+					u.data["go"] = true
 			if u.data.has("unload"):
 				# an insertion: put the squad on the ground, then leave
 				if not u.data.get("unloaded", false):

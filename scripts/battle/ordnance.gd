@@ -162,7 +162,7 @@ func _guided_pos(g: Dictionary, f: float) -> Vector3:
 				p.y = lerpf(gy + 70.0 + sin(k * PI) * 260.0, b.y, k * k)
 			return p
 		"illum":
-			return b + Vector3.UP * lerpf(900.0, 650.0, f)
+			return b + Vector3.UP * lerpf(800.0, 550.0, f)
 	return a.lerp(b, f)
 
 
@@ -207,8 +207,12 @@ func _guided_done(g: Dictionary) -> void:
 	if g.glow:
 		battle.effects.give("glow", g.glow)
 	if g.kind == "illum":
-		var l: OmniLight3D = battle.effects.hold_light(g.target + Vector3.UP * 650.0, 9.0, 2200.0, Color(1.0, 0.95, 0.8))
-		illum.append({"l": l, "t": 0.0, "life": 55.0, "p": g.target, "glow": battle.effects.take("glow")})
+		var l: OmniLight3D = battle.effects.hold_light(g.target + Vector3.UP * 550.0, 0.0, 1500.0, Color(1.0, 0.95, 0.82))
+		if l:
+			# constant brightness through the light's range instead of
+			# falling off with distance, or none of it reaches the ground
+			l.omni_attenuation = 0.0
+		illum.append({"l": l, "t": 0.0, "life": 75.0, "p": g.target, "glow": battle.effects.take("glow")})
 		return
 	var target: Vector3 = g.target
 	if g.guide == "laser" and g.t - float(g.lased) > 3.0:
@@ -227,12 +231,16 @@ func _update_illum(dt: float) -> void:
 	while i >= 0:
 		var it: Dictionary = illum[i]
 		it.t += dt
-		var y := lerpf(650.0, 150.0, it.t / it.life)
-		var pos: Vector3 = it.p + Vector3.UP * y
+		# a flare under a parachute: lights at ~550 m, drifts down, burns out
+		# about 60 m up
+		var y := lerpf(550.0, 60.0, it.t / it.life)
+		var pos: Vector3 = it.p + Vector3.UP * y + Vector3(sin(it.t * 0.05) * 30.0, 0.0, it.t * 0.6)
 		var l: OmniLight3D = it.l
 		if l:
 			l.position = pos
-			l.light_energy = 9.0 * (1.0 - pow(it.t / it.life, 3.0)) * randf_range(0.9, 1.0)
+			l.omni_range = y * 2.2 + 300.0
+			var fade := minf(1.0, it.t / 1.5) * (1.0 - pow(it.t / it.life, 6.0))
+			l.light_energy = 1.8 * fade * randf_range(0.85, 1.0)
 		var gl: MeshInstance3D = it.glow
 		gl.set_instance_shader_parameter("fx_color", Color(2.5, 2.4, 2.0))
 		gl.set_instance_shader_parameter("fx_alpha", 1.0)

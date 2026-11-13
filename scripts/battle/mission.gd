@@ -319,6 +319,8 @@ func _pick(list_key: String, cfg_key: String):
 
 
 func _heli(lz: Vector3, from_ang := -999.0) -> Object:
+	# troops the player called in get lifted out at the same time
+	battle.support.extract_called_troops()
 	var a := from_ang if from_ang > -900.0 else randf() * TAU
 	var start := lz + Vector3(sin(a), 0, -cos(a)) * 3800.0
 	start.y = world.height(start.x, start.z) + 140.0

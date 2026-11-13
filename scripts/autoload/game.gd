@@ -17,6 +17,7 @@ var last_result := {}
 var view_mode := 0
 var autotest := ""
 var autotest_secs := 60.0
+var no_flock := false        # test flag: --noflock turns infected grouping off
 
 
 func _ready() -> void:
@@ -27,6 +28,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--autotest="):
 			autotest = a.substr(11)
+		elif a == "--noflock":
+			no_flock = true
 		elif a.begins_with("--secs="):
 			autotest_secs = float(a.substr(7))
 	_setup_input()

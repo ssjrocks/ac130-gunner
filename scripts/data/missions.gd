@@ -53,7 +53,7 @@ const CAMPAIGN := [
 		"brief": "A bomb-maker is leaving Port Salem in a white pickup with two technicals as escort. There are a lot of white pickups out there. Find the right one and kill it: three civilian casualties ends the mission."},
 	{"id": "c13", "chapter": 4, "name": "Patient Zero", "map": "lowtown", "time": "dusk", "type": "zombie", "site": "hospital", "duration": 360.0,
 		"survivors": 12, "min_survivors": 4, "civ": 0.0, "supports": {"s_hellfire": 2, "s_jdam": 1}, "xp": 2500, "grants": [],
-		"brief": "Something has gone very wrong in Lowtown. Twelve survivors are holed up in Mercy General and the dead are walking. Keep the hordes off the hospital until the evac helicopter arrives. On thermal they show up cold."},
+		"brief": "Something has gone very wrong in Lowtown. Twelve survivors are holed up in Mercy General and the dead are walking. Keep the hordes off the hospital until the evac helicopter arrives. Whatever this is runs them hot: on thermal they burn brighter than the living, and they sprint."},
 	{"id": "c14", "chapter": 4, "name": "Dead City", "map": "lowtown", "time": "night", "type": "zombie", "site": "school", "duration": 480.0,
 		"survivors": 14, "min_survivors": 5, "civ": 0.0, "supports": {"s_jdam": 2, "s_hellfire": 3, "s_illum": 3}, "xp": 3000, "grants": ["s_tomahawk"],
 		"brief": "Night. A second group is trapped at Westfield High. The horde is bigger and some of them are much bigger. Use illumination rounds, use everything."},

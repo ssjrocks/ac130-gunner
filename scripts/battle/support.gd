@@ -197,6 +197,66 @@ func insert_squad(target: Vector3) -> void:
 	markers.append({"pos": lz, "text": "HELO LZ", "kind": "friend", "heli": h})
 
 
+## When the mission's extraction helicopter launches, every group of troops
+## the player called in (QRF dismounts, helicopter squads) gets a pickup of
+## its own from the same distance, so it lands at the same time. Their trucks
+## drive home. The mission doesn't wait for any of them.
+func extract_called_troops() -> void:
+	var w = battle.world
+	var called: Array = []
+	# trucks still carrying troops stop and put them down for the lift
+	for u in battle.units.list.duplicate():
+		if u.alive and u.team == 0 and u.veh and u.group.begins_with("qrf") and not u.cargo.is_empty():
+			u.data["goal"] = u.pos
+			battle.units.dismount(u)
+	for u in battle.units.list:
+		if not u.alive or u.team != 0:
+			continue
+		var called_group: bool = u.group.begins_with("qrf") or u.group == "airmob"
+		if not called_group:
+			continue
+		if u.veh:
+			if w.map.get("sites", {}).has("qrf"):
+				u.order = "path"
+				u.path = w.drive_path(u.pos, w.site("qrf"))
+				u.path_i = 0
+				u.on_arrive = ""
+		else:
+			called.append(u)
+	# clusters of up to 12 within 150 m, one helicopter each
+	var lifts := 0
+	while not called.is_empty():
+		var seed_u = called.pop_back()
+		var team: Array = [seed_u]
+		var i := called.size() - 1
+		while i >= 0 and team.size() < 12:
+			if called[i].pos.distance_to(seed_u.pos) < 150.0:
+				team.append(called.pop_at(i))
+			i -= 1
+		var c := Vector3.ZERO
+		for u in team:
+			c += u.pos
+		c /= team.size()
+		var lz := c
+		for k in 30:
+			var c2 := Vector2(c.x, c.z) + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (8.0 + k * 6.0)
+			if w.ground_ok(c2) and not w.in_building(c2, 14.0) and w.normal_at(c2.x, c2.y).y > 0.9:
+				lz = w.to3(c2)
+				break
+		var a := randf() * TAU
+		var start: Vector3 = lz + Vector3(sin(a), 0, -cos(a)) * 3800.0
+		start.y = w.height(start.x, start.z) + 140.0
+		var exit: Vector3 = lz + Vector3(sin(a + 2.2), 0, -cos(a + 2.2)) * 4500.0
+		var ids: Array = []
+		for u in team:
+			ids.append(u.id)
+		var h = battle.units.spawn("heli", 0, start, "lift_heli", {"data": {"state": "inbound", "lz": lz, "exit": exit, "pickup": ids, "brave": true}, "heading": a + PI})
+		markers.append({"pos": lz, "text": "PICKUP", "kind": "friend", "heli": h})
+		lifts += 1
+	if lifts > 0:
+		battle.radio("PALE HORSE 2-1", "Pale Horse sending %d bird%s to lift out your QRF and squads." % [lifts, "" if lifts == 1 else "s"])
+
+
 func _update_markers() -> void:
 	var i := markers.size() - 1
 	while i >= 0:
