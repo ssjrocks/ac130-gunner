@@ -6,6 +6,7 @@ const UiTheme := preload("res://scripts/ui/theme.gd")
 const Data := preload("res://scripts/data/data.gd")
 const Missions := preload("res://scripts/data/missions.gd")
 const Maps := preload("res://scripts/data/maps.gd")
+const Credits := preload("res://scripts/data/credits.gd")
 
 const BG_SHADER := """
 shader_type canvas_item;
@@ -77,6 +78,8 @@ func show_screen(sname: String, arg = null) -> void:
 			_settings()
 		"controls":
 			_controls()
+		"credits":
+			_credits()
 		"debrief":
 			_debrief(arg if arg != null else Game.last_result)
 		_:
@@ -210,6 +213,7 @@ func _title() -> void:
 	_button(col, "CAREER", func(): show_screen("career"))
 	_button(col, "SETTINGS", func(): show_screen("settings"))
 	_button(col, "CONTROLS", func(): show_screen("controls"))
+	_button(col, "CREDITS", func(): show_screen("credits"))
 	_button(col, "QUIT", func(): get_tree().quit())
 	var fill := Control.new()
 	fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -580,6 +584,27 @@ func _controls() -> void:
 		for cell in rows[i]:
 			_label(g, cell, 19, UiTheme.ACCENT if i == 0 else UiTheme.FG)
 	_label(v, "\nRounds take several seconds to reach the ground from 10,000 ft: lead moving targets. Higher altitude keeps you safer from missiles but spreads your rounds. Friendly troops blink with IR strobes in night vision.", 17, UiTheme.DIM).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+
+func _credits() -> void:
+	var v := _vbox(body, 8)
+	_header(v, "CREDITS")
+	_label(v, "Game, terrain, buildings, effects and sound made in code. 3D models from Sketchfab, licensed " + Credits.LICENSE + ", adapted for the game:", 18, UiTheme.DIM).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	var g := GridContainer.new()
+	g.columns = 2
+	g.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	g.add_theme_constant_override("h_separation", 30)
+	g.add_theme_constant_override("v_separation", 6)
+	sc.add_child(g)
+	for m in Credits.MODELS:
+		_label(g, String(m.what).to_upper(), 17, UiTheme.ACCENT)
+		var t := "\"%s\" by %s\n%s" % [m.title, m.author, m.url]
+		if m.has("note"):
+			t += "\n" + String(m.note)
+		_label(g, t, 16)
 
 
 # --- Debrief ------------------------------------------------------------------

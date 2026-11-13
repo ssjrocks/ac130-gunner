@@ -1099,12 +1099,14 @@ func _gfx_test(map_id: String, tod: String) -> void:
 		if w.ground_ok(c2) and not w.in_building(c2, 45.0) and w.road_at(c2) < 0.1:
 			spot = w.to3(c2)
 			break
-	var kinds := ["tank", "btr", "truck", "technical", "humvee", "mrap", "suv", "car", "zu23", "sam"]
+	var kinds := ["tank", "btr", "truck", "technical", "humvee", "mrap", "suv", "car", "pickup", "sam"]
 	for i in kinds.size():
 		var p: Vector3 = spot + Vector3((i - 4.5) * 9.0, 0, 0)
 		var u = b.units.spawn(kinds[i], 1 if i < 4 or i > 7 else 0, p, "show", {"order": "hold", "heading": 0.3})
 		u.hp = 1.0e6
-	var walkers: Array = b.units.squad(["rifle", "rifle", "rpg", "emg", "civ", "civ", "civ", "soldier", "zombie", "survivor"], 1, spot + Vector3(0, 0, 30), 6.0, "walk", {"order": "move"})
+	for i in 2:
+		b.units.spawn("heli", 0, spot + Vector3(-12.0 + i * 26.0, 0, -45), "show", {"beh": "static", "airframe": ["uh60", "ch47"][i], "heading": 0.5})
+	var walkers: Array = b.units.squad(["rifle", "rifle", "rpg", "emg", "civ", "civ", "civ", "soldier", "zombie", "survivor", "sf", "pilot"], 1, spot + Vector3(0, 0, 30), 6.0, "walk", {"order": "move"})
 	for u in walkers:
 		u.team = 2
 		u.path = [u.pos + Vector3(0, 0, 300)]
@@ -1112,13 +1114,15 @@ func _gfx_test(map_id: String, tod: String) -> void:
 		u.hp = 1.0e6
 	var shots := [
 		["gfx_vehicles_60x", spot, 60.0], ["gfx_vehicles_150x", spot + Vector3(-15, 0, 0), 150.0],
-		["gfx_people_150x", null, 150.0],
+		["gfx_people_150x", null, 150.0], ["gfx_helis_40x", spot + Vector3(0, 0, -45), 40.0],
+		["gfx_helis_120x", spot + Vector3(14, 0, -45), 120.0], ["gfx_people_whot", null, 100.0],
 	]
 	for sh in shots:
 		var p = sh[1]
 		if p == null:
 			p = walkers[0].pos
 			g.track_unit = walkers[0]
+		Game.set_view_mode(2 if sh[0].ends_with("whot") else 0)
 		g.aim_point = p
 		g.aim_valid = true
 		g.mag_max = 150.0

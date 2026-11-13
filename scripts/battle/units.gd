@@ -3,6 +3,7 @@ extends Node3D
 ## firing, damage and death. One manager updates them all each frame.
 
 const Meshes := preload("res://scripts/world/meshes.gd")
+const Models := preload("res://scripts/world/models.gd")
 const Mats := preload("res://scripts/world/mats.gd")
 const CELL := 100.0
 
@@ -103,7 +104,7 @@ func _ready() -> void:
 	world = battle.world
 
 
-func mesh_for(kind: String, team: int, opts: Dictionary) -> Mesh:
+func mesh_id_for(kind: String, team: int, opts: Dictionary) -> String:
 	var base: String = KINDS[kind].mesh
 	var id := ""
 	match base:
@@ -138,9 +139,9 @@ func mesh_for(kind: String, team: int, opts: Dictionary) -> Mesh:
 					"btr", "tank", "zu23", "sam", "radar":
 						paint = "green" if world.biome in ["green", "mountain", "urban"] else "sand"
 					"heli":
-						paint = ""
+						paint = opts.get("airframe", "uh60")
 			id = base + ("_" + paint if paint != "" else "")
-	return Meshes.get_mesh(id)
+	return id
 
 
 func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
@@ -170,8 +171,9 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 	u.think_t = randf() * 0.8
 	u.aa_t = randf_range(20.0, 20.0 + float(u.d.get("aa_cd", 10.0)))
 	var mi := MeshInstance3D.new()
-	mi.mesh = mesh_for(kind, team, opts)
-	mi.material_override = Mats.solid() if u.veh else Mats.unit()
+	var mesh_id := mesh_id_for(kind, team, opts)
+	mi.mesh = Meshes.get_mesh(mesh_id)
+	mi.material_override = Meshes.get_material(mesh_id, Mats.solid() if u.veh else Mats.unit())
 	mi.layers = 2
 	mi.set_instance_shader_parameter("heat", u.heat)
 	if opts.has("tint"):
@@ -191,14 +193,10 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 		s.visible = false
 		mi.add_child(s)
 		u.extra = s
+	if not u.veh and Meshes.is_model(mesh_id):
+		_arm(mi, mesh_id, kind)
 	if kind == "heli":
-		var rot := MeshInstance3D.new()
-		rot.mesh = Meshes.get_mesh("rotor")
-		rot.material_override = Mats.solid()
-		rot.set_instance_shader_parameter("heat", 0.6)
-		rot.position = Vector3(0, 3.75, 0)
-		mi.add_child(rot)
-		u.extra = rot
+		u.extra = _rotors(mi, mesh_id)
 	u.order = opts.get("order", "hold")
 	u.goal = opts.get("goal", u.pos)
 	u.path = opts.get("path", [])
@@ -210,6 +208,68 @@ func spawn(kind: String, team: int, pos: Vector3, group := "", opts := {}) -> U:
 	list.append(u)
 	_pose(u, 0.0)
 	return u
+
+
+## Gives an imported person the weapon its kind carries, held in front
+## between the hands (rocket tubes on the shoulder).
+func _arm(mi: MeshInstance3D, mesh_id: String, kind: String) -> void:
+	var w := ""
+	match kind:
+		"soldier", "sf", "rifle", "survivor":
+			w = "rifle"
+		"mg", "emg":
+			w = "mg"
+		"rpg", "manpads":
+			w = "rpg"
+	if w == "":
+		return
+	var gm := MeshInstance3D.new()
+	gm.mesh = Meshes.get_mesh("wpn_" + w)
+	gm.material_override = Mats.solid()
+	gm.set_instance_shader_parameter("heat", 0.5)
+	var hands: Array = Models.hands(Models.lookup(mesh_id)[0])
+	if w == "rpg" or hands.size() < 2:
+		gm.position = Vector3(0.16, 1.52, 0.05)
+	else:
+		var a: Array = hands[0]
+		var b: Array = hands[1]
+		gm.position = Vector3((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 + 0.05, (a[2] + b[2]) * 0.5 - 0.1)
+		gm.rotation = Vector3(-0.2, 0.0, 0.0)
+	mi.add_child(gm)
+
+
+## Spinning rotors: the model's own rotor parts, or the plain disc. Returns
+## a holder whose children each carry their spin axis.
+func _rotors(mi: MeshInstance3D, mesh_id: String) -> Node3D:
+	var holder := Node3D.new()
+	mi.add_child(holder)
+	var model: String = Models.lookup(mesh_id)[0]
+	var parts: Dictionary = Models.parts(model) if model != "" else {}
+	if parts.is_empty():
+		var rot := MeshInstance3D.new()
+		rot.mesh = Meshes.get_mesh("rotor")
+		rot.material_override = Mats.solid()
+		rot.set_instance_shader_parameter("heat", 0.6)
+		rot.position = Vector3(0, 3.75, 0)
+		rot.set_meta("spin", Vector3.UP)
+		holder.add_child(rot)
+		return holder
+	var dir := 1.0
+	for pname in parts:
+		var pd: Dictionary = parts[pname]
+		var pm := pd.file.get_basename() as String
+		var rot := MeshInstance3D.new()
+		rot.mesh = Models.mesh(pm)
+		rot.material_override = Models.material(pm, false, Color.WHITE)
+		rot.set_instance_shader_parameter("heat", 0.6)
+		rot.position = Vector3(pd.pos[0], pd.pos[1], pd.pos[2])
+		var axis := Vector3.RIGHT if pd.axis == "x" else Vector3.UP
+		# tandem rotors turn opposite ways; tail rotors spin faster
+		rot.set_meta("spin", axis * (2.2 if pd.axis == "x" else dir))
+		if pd.axis != "x":
+			dir = -dir
+		holder.add_child(rot)
+	return holder
 
 
 ## Spawns several units spread around a centre. Returns them.
@@ -981,4 +1041,6 @@ func _heli(u: U, dt: float) -> void:
 	var b := Basis(Vector3.UP, u.heading) * Basis(Vector3.RIGHT, -tilt)
 	u.node.transform = Transform3D(b, u.pos)
 	if u.extra:
-		u.extra.rotation.y += dt * 30.0
+		for r in u.extra.get_children():
+			var spin: Vector3 = r.get_meta("spin")
+			r.rotate_object_local(spin.normalized(), dt * 30.0 * spin.length())

@@ -19,7 +19,7 @@ static func line_dir(ang: float) -> Vector3:
 func _jet(kind: String) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = Meshes.get_mesh(kind)
-	mi.material_override = Mats.solid()
+	mi.material_override = Meshes.get_material(kind, Mats.solid())
 	mi.set_instance_shader_parameter("heat", 0.75)
 	add_child(mi)
 	return mi
@@ -250,7 +250,7 @@ func extract_called_troops() -> void:
 		var ids: Array = []
 		for u in team:
 			ids.append(u.id)
-		var h = battle.units.spawn("heli", 0, start, "lift_heli", {"data": {"state": "inbound", "lz": lz, "exit": exit, "pickup": ids, "brave": true}, "heading": a + PI})
+		var h = battle.units.spawn("heli", 0, start, "lift_heli", {"airframe": "ch47", "data": {"state": "inbound", "lz": lz, "exit": exit, "pickup": ids, "brave": true}, "heading": a + PI})
 		markers.append({"pos": lz, "text": "PICKUP", "kind": "friend", "heli": h})
 		lifts += 1
 	if lifts > 0:

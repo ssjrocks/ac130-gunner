@@ -39,6 +39,9 @@ instance uniform vec4 tint : source_color = vec4(1.0);
 instance uniform float heat = 0.3;
 instance uniform vec4 glow = vec4(0.0);
 uniform float roughness_v = 0.85;
+uniform bool use_tex = false;
+uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
+uniform vec4 tex_tint : source_color = vec4(1.0);
 
 void fragment() {
 	if (view_mode >= 2) {
@@ -50,6 +53,7 @@ void fragment() {
 		EMISSION = vec3(h);
 	} else {
 		ALBEDO = tint.rgb * COLOR.rgb;
+		if (use_tex) { ALBEDO *= texture(albedo_tex, UV).rgb * tex_tint.rgb; }
 		ROUGHNESS = roughness_v;
 		SPECULAR = 0.25;
 		EMISSION = glow.rgb * glow.a;
@@ -69,6 +73,9 @@ instance uniform float heat = 0.3;
 instance uniform vec4 glow = vec4(0.0);
 instance uniform float walk = 0.0;
 instance uniform float stride = 0.0;
+uniform bool use_tex = false;
+uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
+uniform vec4 tex_tint : source_color = vec4(1.0);
 
 void vertex() {
 	float limb = UV2.x;
@@ -94,6 +101,7 @@ void fragment() {
 		EMISSION = vec3(h);
 	} else {
 		ALBEDO = tint.rgb * COLOR.rgb;
+		if (use_tex) { ALBEDO *= texture(albedo_tex, UV).rgb * tex_tint.rgb; }
 		ROUGHNESS = 0.85;
 		SPECULAR = 0.25;
 		EMISSION = glow.rgb * glow.a;
@@ -415,6 +423,16 @@ static func solid() -> ShaderMaterial:
 
 static func unit() -> ShaderMaterial:
 	return _mat("unit", UNIT)
+
+
+## A textured copy of the solid or unit material for an imported model.
+static func textured(base: String, tex: Texture2D, tex_tint := Color.WHITE) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = _shader(base, SOLID if base == "solid" else UNIT)
+	m.set_shader_parameter("use_tex", true)
+	m.set_shader_parameter("albedo_tex", tex)
+	m.set_shader_parameter("tex_tint", tex_tint)
+	return m
 
 
 static func building() -> ShaderMaterial:

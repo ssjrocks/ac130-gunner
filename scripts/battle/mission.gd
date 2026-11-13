@@ -325,7 +325,7 @@ func _heli(lz: Vector3, from_ang := -999.0) -> Object:
 	var start := lz + Vector3(sin(a), 0, -cos(a)) * 3800.0
 	start.y = world.height(start.x, start.z) + 140.0
 	var exit := lz + Vector3(sin(a + PI * 0.6), 0, -cos(a + PI * 0.6)) * 4500.0
-	return units.spawn("heli", 0, start, "heli", {"data": {"state": "inbound", "lz": lz, "exit": exit}, "heading": a + PI})
+	return units.spawn("heli", 0, start, "heli", {"airframe": "ch47", "data": {"state": "inbound", "lz": lz, "exit": exit}, "heading": a + PI})
 
 
 # --- Range (tutorial) ---------------------------------------------------------

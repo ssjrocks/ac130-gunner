@@ -2,6 +2,8 @@ extends RefCounted
 ## Low-poly meshes built in code: people, vehicles, trees, aircraft and the
 ## building cube. Vertex alpha is the thermal heat multiplier (0.5 = 1x).
 
+const Models := preload("res://scripts/world/models.gd")
+
 static var _cache := {}
 
 const SKIN := [Color(0.78, 0.62, 0.5), Color(0.62, 0.46, 0.34), Color(0.45, 0.32, 0.24), Color(0.85, 0.7, 0.6)]
@@ -10,9 +12,23 @@ const SKIN := [Color(0.78, 0.62, 0.5), Color(0.62, 0.46, 0.34), Color(0.45, 0.32
 static func get_mesh(id: String) -> Mesh:
 	if _cache.has(id):
 		return _cache[id]
-	var m := _build(id)
+	var model: String = Models.lookup(id)[0]
+	var m: Mesh = Models.mesh(model) if model != "" else _build(id)
 	_cache[id] = m
 	return m
+
+
+## What to draw a mesh id with: an imported model's textured material, or
+## the fallback for meshes built here.
+static func get_material(id: String, fallback: Material) -> Material:
+	var mdl: Array = Models.lookup(id)
+	if mdl[0] == "":
+		return fallback
+	return Models.material(mdl[0], id.begins_with("inf"), mdl[1])
+
+
+static func is_model(id: String) -> bool:
+	return Models.lookup(id)[0] != ""
 
 
 # People carry a limb tag in UV2 for the walking animation in the unit
@@ -147,8 +163,29 @@ static func _build(id: String) -> Mesh:
 			return _jet(parts[1])
 		"prop":
 			return _prop(parts[1])
+		"wpn":
+			return _weapon(parts[1])
 		_:
 			return _vehicle(id)
+
+
+## Weapons carried by imported people: grip at the origin, muzzle along -Z.
+static func _weapon(kind: String) -> Mesh:
+	var st := _st()
+	var gun := _c(0.09, 0.09, 0.09, 0.25)
+	match kind:
+		"rpg":
+			cyl_between(st, Vector3(0, 0, 0.55), Vector3(0, 0, -0.6), 0.055, 0.055, 7, _c(0.28, 0.32, 0.22, 0.25))
+			cyl_between(st, Vector3(0, 0, -0.6), Vector3(0, 0, -0.85), 0.04, 0.09, 7, _c(0.3, 0.33, 0.24, 0.25))
+		"mg":
+			boxc(st, Vector3(0, 0, -0.2), Vector3(0.07, 0.12, 0.8), gun)
+			boxc(st, Vector3(0, 0.01, -0.75), Vector3(0.03, 0.03, 0.4), gun)
+			boxc(st, Vector3(0, -0.1, -0.15), Vector3(0.1, 0.12, 0.12), gun)
+		_:
+			boxc(st, Vector3(0, 0, -0.12), Vector3(0.05, 0.09, 0.62), gun)
+			boxc(st, Vector3(0, 0.01, -0.52), Vector3(0.025, 0.025, 0.24), gun)
+			boxc(st, Vector3(0, -0.1, -0.14), Vector3(0.035, 0.14, 0.06), gun)
+	return st.commit()
 
 
 static func _cube() -> Mesh:
