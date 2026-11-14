@@ -164,7 +164,7 @@ const CAMPAIGN := [
 ]
 
 const DEFAULT_SUPPORTS := {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_tomahawk": 1, "s_illum": 3,
-	"s_a10": 1, "s_sof": 2, "s_qrf": 1, "s_heli": 1, "s_arty": -1, "s_gmlrs": 2, "s_cbu": 1, "s_smoke": 3, "s_switchblade": 3}
+	"s_a10": 1, "s_sof": 2, "s_qrf": 1, "s_heli": 1, "s_arty": -1, "s_gmlrs": 2, "s_cbu": 1, "s_smoke": 3, "s_switchblade": 3, "s_medevac": -1}
 
 
 # The newer call-ins each mission type gets on top of its own list.

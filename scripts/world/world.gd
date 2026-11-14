@@ -44,6 +44,7 @@ var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var terrain_mat: ShaderMaterial
 var tv := {}
+var posts := {}             # outpost site -> fighting positions [{pos, face, elev, kind ("tower"/"step"), bi}]
 var gates := {}             # outpost site -> unit vector (x, z) its gate faces
 var road_nodes := PackedVector2Array()
 var smokes: Array = []         # [centre, radius, until (battle time)]: smoke screens block sight
@@ -829,6 +830,41 @@ func _outpost_walls(c: Vector2, s: float, h: float, t: float, col: Color, gate_s
 				_add_bld(wc, t, s + t, h, ang, col, "wall", false, hp, 0.3, road_ok)
 
 
+## Guard towers in the corners (two on a small post) and sandbag firing
+## steps along the inside of the walls, and the fighting positions on them.
+func _outpost_posts(sname: String, c: Vector2, s: float, gate_side: int, normals: Array) -> void:
+	var list: Array = []
+	var corners := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
+	var use: Array = corners if s >= 45.0 else [corners[0], corners[2]]
+	var th := 6.5 if s >= 45.0 else 5.0
+	for cr in use:
+		var tp: Vector2 = c + cr * (s * 0.5 - 2.0)
+		var bi := buildings.size()
+		_add_bld(tp, 3.4, 3.4, th, 0.0, Color(0.55, 0.5, 0.42), "tower", false, 700.0, 0.33, true)
+		var g := height(tp.x, tp.y)
+		list.append({"pos": Vector3(tp.x, g, tp.y), "face": atan2(-cr.x, -cr.y), "elev": th + 0.1, "kind": "tower", "bi": bi})
+	var sand := Color(0.6, 0.55, 0.42)
+	var half := s * 0.5
+	for k in 4:
+		var nrm: Vector2 = normals[k]
+		var along := Vector2(-nrm.y, nrm.x)
+		var n := int((s - 12.0) / 8.0)
+		for i in n:
+			var t := -half + 6.0 + (i + 0.5) * (s - 12.0) / n
+			if k == gate_side and absf(t) < 9.0:
+				continue
+			# a step of sandbags against the HESCO, a man lying on top of it
+			var sp: Vector2 = c + nrm * (half - 2.0) + along * t
+			var bi := buildings.size()
+			if absf(nrm.x) > 0.5:
+				_add_bld(sp, 1.8, 2.6, 1.3, 0.0, sand, "sandbag", false, 500.0, 0.3, true)
+			else:
+				_add_bld(sp, 2.6, 1.8, 1.3, 0.0, sand, "sandbag", false, 500.0, 0.3, true)
+			var g := height(sp.x, sp.y)
+			list.append({"pos": Vector3(sp.x, g, sp.y), "face": atan2(-nrm.x, -nrm.y), "elev": 1.3, "kind": "step", "bi": bi})
+	posts[sname] = list
+
+
 func _build_outposts() -> void:
 	var sites: Dictionary = map.get("sites", {})
 	var outposts: Dictionary = map.get("outposts", {})
@@ -862,9 +898,8 @@ func _build_outposts() -> void:
 				side = k
 		gates[sname] = normals[side]
 		_outpost_walls(c, s, 2.4, 1.6, hesco, side, 9.0, 900.0, 0.0, true)
+		_outpost_posts(sname, c, s, side, normals)
 		if s >= 45.0:
-			for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-				_add_bld(c + cr * (s * 0.5 - 2.0), 3.4, 3.4, 6.5, 0.0, Color(0.55, 0.5, 0.42), "tower", false, 700.0, 0.33, true)
 			var huts := int(s / 14.0)
 			for k in huts:
 				var hp2 := Vector2(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.3, 0.3)) * s
@@ -1341,7 +1376,7 @@ func los(a: Vector3, b: Vector3, with_buildings := true) -> bool:
 				var t1 := minf(span.y, L)
 				if t1 - t0 < 0.2 or t0 > L - 1.0 or t1 < 1.0:
 					continue
-				if bd.kind == "wall" and (t0 < 12.0 or t1 > L - 12.0):
+				if (bd.kind == "wall" or bd.kind == "sandbag") and (t0 < 12.0 or t1 > L - 12.0):
 					continue
 				return false
 		k += step

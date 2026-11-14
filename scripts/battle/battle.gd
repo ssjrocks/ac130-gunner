@@ -97,6 +97,7 @@ func _build() -> void:
 	mission.battle = self
 	add_child(mission)
 	mission.setup(cfg)
+	units.man_posts()
 	cfg["focus"] = mission.focus
 	gunship = Gunship.new()
 	gunship.battle = self

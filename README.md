@@ -17,17 +17,30 @@ aircraft are CC BY models from Sketchfab (see [CREDITS.md](CREDITS.md)).
 - **Sensor modes:** daylight TV, night vision (image intensifier with gain,
   noise and bloom), and white-hot / black-hot thermal. In thermal everything
   shows its heat: engines, people, warm roads, cooling wrecks. Infected show
-  up cold. Friendly troops wear IR strobes you can see in night vision.
-- **Guns:** 7.62 mm minigun, 30 mm, 40 mm Bofors and 105 mm howitzer, each with
-  its own time of flight, dispersion, blast and armour penetration.
-- **Onboard guided weapons:** Griffin laser missiles and SDB laser-guided bombs.
-- **Support calls:** MQ-9 Hellfire (laser), F/A-18 JDAM (GPS) and GBU-12
-  (laser), Tomahawk cruise missile with a time-on-target countdown,
-  illumination rounds at night, an A-10 gun run and a show of force (a low,
-  fast jet pass that sends enemies running) placed as a strafe line you turn
-  with the mouse wheel, a ground QRF platoon that drives out from the map's
-  QRF base, and a Black Hawk that lands a squad where you point. Laser-guided weapons can also ride the special
-  forces team's laser.
+  up hot. Friendly troops wear IR strobes you can see in night vision.
+- **Fourteen onboard weapons:** 7.62 mm minigun, .50 cal door gun, 20 mm
+  Vulcan, 25 mm Equalizer, 30 mm, 40 mm Bofors (also with proximity airburst
+  rounds), 105 mm howitzer (also airburst), Griffin and Hellfire laser
+  missiles, Viper Strike and SDB laser-guided bombs, and the Advanced Tactical
+  Laser. Each has its own time of flight, dispersion, blast and armour
+  penetration.
+- **Fifteen call-ins:** MQ-9 Hellfire, F/A-18 JDAM and GBU-12, Tomahawk,
+  GMLRS rocket, CBU-97 anti-armour cluster bomb, an 85 mm artillery barrage
+  (no limit, one minute to reload), smoke screens that block sight lines,
+  Switchblade loitering munitions, illumination rounds, an A-10 gun run and a
+  show of force along a strafe line you turn with the mouse wheel, a QRF
+  platoon that drives out from its base (it dismounts to fight any contact on
+  the way, then mounts up and carries on), a Black Hawk squad insertion, and
+  medevac.
+- **Loadout:** pick nine weapons and nine call-ins from what your rank has
+  unlocked; they go on the number keys in the order you pick them.
+- **Wounded and medevac:** friendly soldiers who go down are often wounded,
+  not dead, and are marked WIA with the time they have left. A medevac flies
+  them back to an outpost to be patched up, and the healed men ride the next
+  medevac back out to their unit.
+- **Outposts:** guard towers in the corners and sandbag firing steps along the
+  walls; troops on them are hard to hit and fire over the HESCO. Nobody fires
+  without a clear line of sight: terrain, buildings, walls and smoke all block.
 - **Threats to the aircraft:** MANPADS, SAM sites and triple-A. Flares, with
   timing that matters. Altitude choice: higher is safer but less accurate.
 - **Battlefields:** six maps of the Afghanistan campaign (a dry valley, a

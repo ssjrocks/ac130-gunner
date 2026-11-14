@@ -86,6 +86,10 @@ class U extends RefCounted:
 	var r := 0.45
 	var on_arrive := ""
 	var data := {}
+	var elev := 0.0          # standing this high above the ground (a guard tower, a firing step)
+	var prone := false       # lying behind sandbags: low and hard to hit
+	var downed := false      # a wounded friendly waiting for medevac (alive is false)
+	var down_t := 0.0
 
 
 var battle
@@ -431,12 +435,14 @@ func damage_area(p: Vector3, radius: float, dmg: float, pen: int, by_player: boo
 		var dx: float = u.pos.x - p.x
 		var dz: float = u.pos.z - p.z
 		var d := maxf(0.0, sqrt(dx * dx + dz * dz) - u.r)
-		var dy := absf(u.pos.y + 0.8 - p.y)
+		var dy := absf(u.pos.y + u.elev + 0.8 - p.y)
 		d = sqrt(d * d + maxf(0.0, dy - 1.5) * maxf(0.0, dy - 1.5))
 		if d > radius:
 			continue
 		var f := maxf(0.0, 1.0 - pow(d / radius, 1.5))
 		var dam := dmg * f * armor_mul(pen, int(u.d.get("armor", 0)))
+		if u.prone:
+			dam *= 0.5
 		if dam <= 0.0:
 			continue
 		if hurt(u, dam, by_player, wid):
@@ -464,6 +470,13 @@ func kill(u: U, by_player: bool, wid: String) -> void:
 	u.alive = false
 	u.moving = false
 	u.dead_t = 0.0
+	u.elev = 0.0
+	u.prone = false
+	# most friendly soldiers who go down are wounded, not dead: a medevac can
+	# still save them if it gets there within five minutes
+	if u.team == 0 and u.kind in ["soldier", "mg", "sf"] and u.hp > -float(u.d.hp) * 2.0 and randf() < 0.7:
+		u.downed = true
+		u.down_t = time
 	if u.extra and u.kind != "heli":
 		u.extra.visible = false
 	if u.veh:
@@ -533,6 +546,128 @@ func dismount(u: U) -> void:
 	u.order = "hold"
 
 
+## The QRF on the move: on contact the whole platoon stops and the troops
+## get out and fight; once nothing hostile is near for a few seconds they
+## mount up again and the trucks carry on to the objective.
+func _qrf_think(u: U) -> void:
+	var st: String = u.data.get("qrf_state", "driving")
+	match st:
+		"driving":
+			if u.order == "convoy" and not u.cargo.is_empty() and time > float(u.data.get("contact_cd", 0.0)):
+				var e = _find_target(u, 380.0, true)
+				if e != null:
+					for v in members(u.group):
+						if v.veh and v.data.get("qrf_state", "driving") == "driving" and v.order == "convoy":
+							_qrf_dismount(v, e.pos)
+		"fighting":
+			u.halted = true
+			u.data.fight_t = float(u.data.get("fight_t", 0.0)) + 1.0
+			var threat: Vector3 = u.data.get("threat", u.pos)
+			if enemies_near(u.pos, 320.0) == 0 and enemies_near(threat, 200.0) == 0:
+				u.data.clear_t = float(u.data.get("clear_t", 0.0)) + 1.0
+			else:
+				u.data.clear_t = 0.0
+			# the objective matters more than a firefight that won't end:
+			# after two minutes they break contact and push on
+			if float(u.data.clear_t) >= 6.0 or float(u.data.fight_t) >= 120.0:
+				u.data.qrf_state = "mounting"
+				if u.leader == null:
+					battle.radio("WARHORSE 2-6", "Area's clear, mounting up. Warhorse continuing to the objective.")
+		"mounting":
+			u.halted = true
+			var threat2: Vector3 = u.data.get("threat", u.pos)
+			if (enemies_near(u.pos, 320.0) > 0 or enemies_near(threat2, 200.0) > 0) and float(u.data.get("fight_t", 0.0)) < 120.0:
+				u.data.qrf_state = "fighting"
+				u.data.clear_t = 0.0
+				for id in u.data.dismounts:
+					var m = by_id(id)
+					if m != null and m.alive:
+						m.order = "assault"
+						m.goal = u.pos + (m.pos - u.pos).normalized() * 40.0
+				return
+			var left := 0
+			for id in u.data.dismounts:
+				var m = by_id(id)
+				if m == null or not m.alive or m.boarded:
+					continue
+				if m.pos.distance_to(u.pos) < 7.0:
+					u.cargo.append(m.kind)
+					remove_unit(m)
+					continue
+				m.order = "board"
+				m.goal = u.pos
+				left += 1
+			if left == 0:
+				u.data.dismounts = []
+				u.data.qrf_state = "driving"
+				u.data.fight_t = 0.0
+				u.data["contact_cd"] = time + 60.0
+				u.halted = false
+
+
+func _qrf_dismount(u: U, threat: Vector3) -> void:
+	var ids: Array = []
+	var away := (threat - u.pos)
+	away.y = 0.0
+	away = away.normalized()
+	for k in u.cargo:
+		var p: Vector3 = world.free_spot(Vector2(u.pos.x, u.pos.z), 8.0)
+		# go after the contact until they can see it
+		var m := spawn(k, u.team, p, u.group, {"order": "assault", "goal": threat + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))})
+		ids.append(m.id)
+	u.cargo = []
+	u.data.dismounts = ids
+	u.data["threat"] = threat
+	u.data.qrf_state = "fighting"
+	u.data.clear_t = 0.0
+	u.halted = true
+	if u.leader == null:
+		battle.radio("WARHORSE 2-6", "Contact! Warhorse is dismounting, %s." % battle.mission.compass(threat - u.pos))
+
+
+func by_id(id: int):
+	for u in list:
+		if u.id == id:
+			return u
+	return null
+
+
+## Puts the troops at each outpost onto its fighting positions: a guard up
+## every tower, the rest prone on the sandbag steps along the walls.
+func man_posts() -> void:
+	for sname in world.posts:
+		var posts: Array = world.posts[sname]
+		var c: Vector3 = world.site(sname)
+		var size := float(world.map.get("outposts", {}).get(sname, 40.0))
+		var free := posts.duplicate()
+		for u in list:
+			if free.is_empty():
+				break
+			if not u.alive or u.team != 0 or u.veh or u.order != "hold" or u.beh != "soldier":
+				continue
+			if Vector2(u.pos.x - c.x, u.pos.z - c.z).length() > size * 0.6:
+				continue
+			# towers first, then the nearest step
+			var pick := 0
+			if free[0].kind != "tower":
+				var bd := 1.0e9
+				for i in free.size():
+					var dd: float = free[i].pos.distance_to(u.pos)
+					if dd < bd:
+						bd = dd
+						pick = i
+			var ps: Dictionary = free[pick]
+			free.remove_at(pick)
+			u.pos = ps.pos
+			u.home = ps.pos
+			u.goal = ps.pos
+			u.heading = ps.face
+			u.elev = ps.elev
+			u.prone = ps.kind == "step"
+			u.data["post"] = ps.get("bi", -1)
+			_pose(u, 0.0)
+
+
 func remove_unit(u: U) -> void:
 	u.alive = false
 	if is_instance_valid(u.node):
@@ -579,6 +714,18 @@ func _cleanup() -> void:
 	var i := list.size() - 1
 	while i >= 0:
 		var u: U = list[i]
+		if u.alive and u.elev > 0.0 and int(u.data.get("post", -1)) >= 0 and not world.buildings[int(u.data.post)].alive:
+			# the tower came down under him
+			u.elev = 0.0
+			hurt(u, 70.0, false, "")
+		if not u.alive and u.downed:
+			# the wounded stay warm and stay put; after five minutes without
+			# a medevac they're lost
+			if time - u.down_t > 300.0:
+				u.downed = false
+				battle.radio("JTAC", "We lost one of the wounded. He didn't make it.")
+			i -= 1
+			continue
 		if not u.alive:
 			u.dead_t += 1.0
 			dead += 1
@@ -614,7 +761,9 @@ func _think(u: U) -> void:
 			if rng > 0.0:
 				if u.target == null or not u.target.alive or (u.target.pos - u.pos).length() > rng * 1.15 or not can_see(u, u.target):
 					u.target = _find_target(u, rng)
-			if u.cargo.size() > 0 and u.order != "hold":
+			if u.data.get("qrf", false):
+				_qrf_think(u)
+			elif u.cargo.size() > 0 and u.order != "hold":
 				var e = _find_target(u, 350.0, false)
 				if e != null:
 					u.order = "hold"
@@ -641,11 +790,11 @@ func _think(u: U) -> void:
 
 
 static func eye(u: U) -> Vector3:
-	return u.pos + Vector3(0, 2.2 if u.veh else 1.6, 0)
+	return u.pos + Vector3(0, u.elev + (2.2 if u.veh else (0.45 if u.prone else 1.6)), 0)
 
 
 static func body(u: U) -> Vector3:
-	return u.pos + Vector3(0, 1.4 if u.veh else 1.0, 0)
+	return u.pos + Vector3(0, u.elev + (1.4 if u.veh else (0.3 if u.prone else 1.0)), 0)
 
 
 ## Line of sight from a's eyes to b, blocked by terrain and buildings.
@@ -770,6 +919,11 @@ func _fight(u: U, dt: float) -> void:
 	var p := acc * (1.0 - 0.6 * dist / maxf(rng, 1.0))
 	if t.order == "hold" and not t.veh and t.beh == "soldier":
 		p *= 0.55
+	# behind sandbags or a tower's parapet only a head and a rifle show
+	if t.prone:
+		p *= 0.3
+	elif t.elev > 2.0:
+		p *= 0.55
 	if u.moving:
 		p *= 0.6
 	if u.d.get("melee", false):
@@ -866,6 +1020,10 @@ func _move(u: U, dt: float) -> void:
 		if u.leader.pos.distance_to(u.pos) < 28.0:
 			u.moving = false
 			return
+	if u.elev > 0.0 or u.prone:
+		# climb down off the tower or up off the sandbags first
+		u.elev = 0.0
+		u.prone = false
 	var spd: float = float(u.d.get("run", u.d.speed)) if run else float(u.d.speed)
 	spd *= u.speed_mul
 	if u.supp_t > 0.0 and not u.veh:
@@ -977,6 +1135,10 @@ func _pose(u: U, dt: float) -> void:
 		u.node.set_instance_shader_parameter("stride", 0.0)
 	if u.beh == "zombie":
 		b = b * Basis(Vector3.RIGHT, -0.28 + sin(time * 2.0 + u.phase) * 0.08)
+	if u.prone and not u.moving:
+		b = b * Basis(Vector3.RIGHT, -PI * 0.5)
+		p.y += 0.25
+	p.y += u.elev
 	if u.d.has("scale"):
 		b = b.scaled(Vector3.ONE * float(u.d.scale))
 	u.node.transform = Transform3D(b, p)
@@ -985,6 +1147,17 @@ func _pose(u: U, dt: float) -> void:
 # --- Helicopters ----------------------------------------------------------
 
 ## data: state (inbound, hold, land, wait, depart, gone), lz, exit, alt.
+## Sends a helicopter on to the next stop of its route.
+func _next_leg(u: U) -> void:
+	var leg: Dictionary = u.data.legs.pop_front()
+	u.data.leg = leg
+	u.data.leg_done = false
+	u.data.lz = leg.lz
+	u.data.go = false
+	u.data.wait_t = 0.0
+	u.data.state = "inbound"
+
+
 func _heli(u: U, dt: float) -> void:
 	var st: String = u.data.get("state", "inbound")
 	var lz: Vector3 = u.data.get("lz", u.pos)
@@ -1048,8 +1221,26 @@ func _heli(u: U, dt: float) -> void:
 					battle.radio("PALE HORSE 2-1", "Squad's on the ground. Pale Horse lifting.")
 				elif float(u.data.wait_t) > 5.0:
 					u.data["go"] = true
+			if u.data.has("leg") and not u.data.get("leg_done", false):
+				u.data["leg_done"] = true
+				battle.support.medevac_leg(u, u.data.leg)
+				if u.data.leg.op == "home":
+					# parks at the outpost; a field hospital off the map is just gone
+					u.data.state = "parked" if String(u.data.leg.base) != "" else "depart"
+					u.data.erase("leg")
+					return
+			if u.data.has("leg") and float(u.data.wait_t) > 6.0:
+				u.data["go"] = true
 			if u.data.get("go", false):
-				u.data.state = "depart"
+				if u.data.has("legs") and not u.data.legs.is_empty():
+					_next_leg(u)
+				else:
+					u.data.state = "depart"
+		"parked":
+			want_alt = 0.0
+			spd = 0.0
+			if u.data.has("legs") and not u.data.legs.is_empty():
+				_next_leg(u)
 		"depart":
 			target = u.data.get("exit", lz + Vector3(4000, 0, 0))
 			spd = minf(float(u.data.get("dspd", 5.0)) + dt * 12.0, 60.0)

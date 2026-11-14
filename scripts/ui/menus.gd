@@ -321,8 +321,8 @@ func _select_mission(i: int) -> void:
 	t += "%s\n\n" % m.brief
 	var lo: Array = Game.loadout_for(Missions.campaign_cfg(i))
 	var ws: Array = []
-	for w in Data.WEAPON_ORDER:
-		if w in lo:
+	for w in lo:
+		if Data.WEAPONS.has(w):
 			ws.append(Data.WEAPONS[w].short)
 	t += "[color=#ffd15a]WEAPONS[/color]  %s\n" % ", ".join(PackedStringArray(ws))
 	var sensors := ["TV"]
@@ -337,9 +337,11 @@ func _select_mission(i: int) -> void:
 		mag = 60
 	t += "[color=#ffd15a]SENSORS[/color]  %s, up to %dx\n" % [" / ".join(PackedStringArray(sensors)), mag]
 	var sup: Array = []
-	for s in m.get("supports", {}):
-		if s in lo:
-			sup.append("%s x%d" % [Data.SUPPORT[s].short, int(m.supports[s])])
+	var msup: Dictionary = Missions.campaign_cfg(i).get("supports", {})
+	for s in lo:
+		if Data.SUPPORT.has(s) and msup.has(s):
+			var n := int(msup[s])
+			sup.append("%s %s" % [Data.SUPPORT[s].short, "(reloads)" if n < 0 else "x%d" % n])
 	if not sup.is_empty():
 		t += "[color=#ffd15a]SUPPORT[/color]  %s\n" % ", ".join(PackedStringArray(sup))
 	var grants: Array = []

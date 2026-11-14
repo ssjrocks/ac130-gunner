@@ -60,6 +60,10 @@ func begin(s: String) -> void:
 		flow_mode = true
 		_illum_test()
 		return
+	if parts[0] == "medevac":
+		flow_mode = true
+		_medevac_test()
+		return
 	if parts[0] == "arsenal":
 		flow_mode = true
 		_arsenal_test()
@@ -1085,6 +1089,30 @@ func _support_test(kind: String, map_id: String) -> void:
 					if u.pos.distance_to(target) < 120.0:
 						near += 1
 			print("[support] QRF: after %.0f s, %d infantry dismounted, %d of them within 120 m of the objective" % [t - t0, inf2, near])
+		"qrfamb":
+			# the QRF meets fighters halfway: it should stop, fight, mount up and go on
+			var target2: Vector3 = c
+			var t0 := t
+			b.support.send_qrf(target2)
+			var lead = b.units.members("qrf1")[0]
+			var path2: Array = lead.path
+			var mid: Vector3 = path2[path2.size() / 2]
+			var side: Vector3 = (path2[path2.size() / 2 + 1] - mid).cross(Vector3.UP).normalized()
+			var amb: Array = b.units.squad(["rifle", "rifle", "rifle", "rifle", "rifle"], 1, mid + side * 140.0, 12.0, "amb", {"order": "hold"})
+			print("[support] QRF speed %.1f m/s (a civilian car does %.1f)" % [float(lead.d.speed) * lead.speed_mul, float(b.units.KINDS.car.speed)])
+			var last := ""
+			while t - t0 < 900.0:
+				await _wait_s(1.0)
+				var st: String = lead.data.get("qrf_state", "driving")
+				var inf: int = b.units.members("qrf1").filter(func(u): return not u.veh).size()
+				var key := "%s %d" % [st, inf]
+				if st != last.split(" ")[0]:
+					print("[support] QRF t=%3d s: %-9s %d troops out, %d ambushers left, lead %.0f m from objective" % [int(t - t0), st, inf, b.units.count("amb"), lead.pos.distance_to(target2)])
+				last = key
+				if lead.order != "convoy" and inf >= 20:
+					break
+			var near2: int = b.units.members("qrf1").filter(func(u): return not u.veh and u.pos.distance_to(target2) < 150.0).size()
+			print("[support] QRF: done after %.0f s, %d troops within 150 m of the objective" % [t - t0, near2])
 		"heli":
 			var t1 := t
 			b.support.insert_squad(c)
@@ -1625,4 +1653,81 @@ func _arsenal_spot(w, g, i: int) -> Vector3:
 			break
 		p += Vector2(60, 35)
 	return w.to3(p)
+
+
+## Two squads take casualties; medevacs lift the wounded to the FOB, they
+## heal, and the second flight takes them back out to their squad.
+func _medevac_test() -> void:
+	Game.settings.loadout = "all"
+	Game.career["loadout_s"] = ["s_medevac"]
+	Game.start_mission(Missions.skirmish_cfg("kharim", "cas", "day", 1))
+	while _battle() == null or not _battle().built:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	var w = b.world
+	var fob: Vector3 = w.site("fob")
+	for u in b.units.list.duplicate():
+		if u.team == 1:
+			b.units.remove_unit(u)
+	var a: Vector3 = w.free_spot(Vector2(fob.x, fob.z) + Vector2(-900, 700), 20.0)
+	var sq: Array = b.units.squad(["soldier", "soldier", "soldier", "soldier", "soldier", "soldier"], 0, a, 12.0, "alpha", {"order": "hold"})
+	for k in 3:
+		sq[k].hp = 0.0
+		b.units.kill(sq[k], false, "")
+		sq[k].downed = true
+		sq[k].down_t = b.units.time
+	print("[medevac] alpha: 3 wounded %.0f m from %s" % [a.distance_to(fob), w.map.site_names.get("fob", "fob")])
+	var s: Dictionary = g.supports[0]
+	g.ssel = 0
+	g.support_mode = true
+	g.aim_point = a
+	g.aim_valid = true
+	g._call_support()
+	var h = null
+	for u in b.units.list:
+		if u.kind == "heli" and u.data.get("medevac", false):
+			h = u
+	print("[medevac] heli launched: %s, from %.0f m away" % [str(h != null), h.pos.distance_to(fob) if h else -1.0])
+	var last := ""
+	for t in 400:
+		await _wait_s(1.0)
+		var st: String = h.data.get("state", "")
+		var key := "%s %s" % [st, str(h.data.get("leg", {}).get("op", ""))]
+		if key != last:
+			last = key
+			print("[medevac] t=%3d s  %-8s leg %-8s patients %d  aid %d  heli %.0f m from FOB" % [t, st, str(h.data.get("leg", {}).get("op", "")), h.data.patients.size(), b.support.aid.size(), h.pos.distance_to(fob)])
+		if st == "parked" and b.support.aid.is_empty():
+			break
+	var healed: Array = b.units.list.filter(func(u): return u.alive and u.data.has("orig_group"))
+	print("[medevac] healed and waiting at the FOB: %d (from %s)" % [healed.size(), ", ".join(PackedStringArray(healed.map(func(u): return u.data.orig_group)))])
+	# casualties somewhere else: the next flight drops alpha's men on the way
+	var c2: Vector3 = w.free_spot(Vector2(fob.x, fob.z) + Vector2(800, 900), 20.0)
+	var sq2: Array = b.units.squad(["soldier", "soldier", "soldier"], 0, c2, 10.0, "bravo", {"order": "hold"})
+	sq2[0].hp = 0.0
+	b.units.kill(sq2[0], false, "")
+	sq2[0].downed = true
+	sq2[0].down_t = b.units.time
+	s.ready_t = 0.0
+	g.support_mode = true
+	g.aim_point = c2
+	g._call_support()
+	last = ""
+	for t in 400:
+		await _wait_s(1.0)
+		var st: String = h.data.get("state", "")
+		var key := "%s %s" % [st, str(h.data.get("leg", {}).get("op", ""))]
+		if key != last:
+			last = key
+			print("[medevac] 2nd t=%3d s  %-8s leg %-8s" % [t, st, str(h.data.get("leg", {}).get("op", ""))])
+		if st == "parked":
+			break
+	var back := 0
+	for u in b.units.list:
+		if u.alive and u.group == "alpha" and u.pos.distance_to(a) < 300.0:
+			back += 1
+	print("[medevac] alpha now has %d men near their position (3 stayed, 3 were wounded)" % back)
+	get_tree().quit()
 

@@ -347,7 +347,7 @@ static func _commas(n: int) -> String:
 
 func _draw_weapons(g, sz: Vector2) -> void:
 	var x := sz.x - 430.0
-	var y := sz.y * 0.16
+	var y := sz.y * 0.2
 	_text(Vector2(x, y), "WEAPONS", 16, UiTheme.DIM)
 	y += 26
 	for i in g.weapons.size():

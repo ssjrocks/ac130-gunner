@@ -151,6 +151,12 @@ const SUPPORT := {
 		"dmg": 0.0, "radius": 0.0, "pen": 0, "fx": "", "count": 4, "scatter": 40.0, "stagger": 0.8, "charges": 3,
 		"duration": 90.0, "radio": "Mortars copy, smoke on the grid, %d seconds.",
 	},
+	# a Black Hawk from the nearest outpost lifts out the wounded near the
+	# point; on the way it drops off healed men going back to their unit
+	"s_medevac": {
+		"name": "MEDEVAC (DUSTOFF)", "short": "MEDEVAC", "kind": "medevac", "placement": "point", "tot": 0.0, "cooldown": 45.0,
+		"radio": "",
+	},
 	"s_switchblade": {
 		"name": "SWITCHBLADE 600 (LOITERING)", "short": "SWITCHBLADE", "guide": "laser", "kind": "missile", "tot": 12.0,
 		"dmg": 3000.0, "radius": 7.0, "pen": 5, "fx": "large", "count": 1, "charges": 3,
@@ -158,7 +164,7 @@ const SUPPORT := {
 	},
 }
 const SUPPORT_ORDER := ["s_hellfire", "s_jdam", "s_lgb18", "s_tomahawk", "s_illum", "s_a10", "s_sof", "s_qrf", "s_heli",
-	"s_arty", "s_gmlrs", "s_cbu", "s_smoke", "s_switchblade"]
+	"s_arty", "s_gmlrs", "s_cbu", "s_smoke", "s_switchblade", "s_medevac"]
 
 # How many weapons and how many call-ins a loadout can carry (one per number key).
 const LOADOUT_SLOTS := 9
@@ -166,7 +172,7 @@ const LOADOUT_SLOTS := 9
 # anything newer that's unlocked fills the spare slots.
 const DEFAULT_LOADOUT := {
 	"w": ["w_762", "w_30", "w_40", "w_105", "w_griffin", "w_lgb"],
-	"s": ["s_hellfire", "s_jdam", "s_lgb18", "s_tomahawk", "s_illum", "s_a10", "s_sof", "s_qrf", "s_heli"],
+	"s": ["s_hellfire", "s_jdam", "s_lgb18", "s_medevac", "s_illum", "s_a10", "s_sof", "s_qrf", "s_heli"],
 }
 
 # Sensor view modes: 0 TV, 1 NV, 2 white-hot thermal, 3 black-hot thermal.
@@ -209,6 +215,7 @@ const UNLOCK_NAMES := {
 	"s_cbu": "CBU-97 sensor-fuzed anti-armour bomb",
 	"s_smoke": "Smoke screen",
 	"s_switchblade": "Switchblade loitering munition",
+	"s_medevac": "Medevac helicopter",
 }
 
 # One line on what each weapon and call-in is for, for the loadout screen.
@@ -241,11 +248,12 @@ const DESC := {
 	"s_cbu": "Each skeet hunts a vehicle in a wide area. Any vehicle, so check for friendlies.",
 	"s_smoke": "A smoke screen that blocks everyone's sight lines through it for a minute and a half.",
 	"s_switchblade": "A loitering munition from the ground team that rides your laser. Quick to arrive.",
+	"s_medevac": "Lifts the wounded near the point back to an outpost to be patched up. Healed men ride the next one back out. 45 s between calls.",
 }
 
 const RANKS := [
 	{"name": "Airman", "abbr": "AMN", "xp": 0, "unlocks": ["w_762"]},
-	{"name": "Airman First Class", "abbr": "A1C", "xp": 1200, "unlocks": ["v_nv", "w_30", "s_sof", "w_127"]},
+	{"name": "Airman First Class", "abbr": "A1C", "xp": 1200, "unlocks": ["v_nv", "w_30", "s_sof", "w_127", "s_medevac"]},
 	{"name": "Senior Airman", "abbr": "SRA", "xp": 3500, "unlocks": ["o_60", "laser", "s_hellfire", "s_heli", "w_20", "s_smoke"]},
 	{"name": "Staff Sergeant", "abbr": "SSGT", "xp": 7000, "unlocks": ["w_40", "v_ir", "s_a10", "w_25", "s_arty"]},
 	{"name": "Technical Sergeant", "abbr": "TSGT", "xp": 12000, "unlocks": ["w_105", "s_jdam", "s_qrf", "w_40ab"]},

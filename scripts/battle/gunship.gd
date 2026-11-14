@@ -665,9 +665,12 @@ func _call_support() -> void:
 		battle.hud.message("ILLUM ONLY AT NIGHT", 1.5)
 		return
 	match def.kind:
-		"gunrun", "sof", "qrf", "heli":
+		"gunrun", "sof", "qrf", "heli", "medevac":
 			if def.kind == "qrf" and not battle.world.map.get("sites", {}).has("qrf"):
 				battle.hud.message("NO QRF BASE ON THIS MAP", 1.5)
+				return
+			if def.kind == "medevac" and battle.support.wounded_near(aim_point, 220.0).is_empty():
+				battle.hud.message("NO WOUNDED NEAR THAT POINT", 1.5)
 				return
 			_spend(s)
 			match def.kind:
@@ -679,6 +682,8 @@ func _call_support() -> void:
 					battle.support.send_qrf(aim_point)
 				"heli":
 					battle.support.insert_squad(aim_point)
+				"medevac":
+					battle.support.call_medevac(aim_point)
 			if def.radio != "":
 				battle.radio("STRIKE", def.radio % int(def.tot))
 			Sfx.play("lock", -4.0)
