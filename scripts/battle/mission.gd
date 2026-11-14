@@ -625,11 +625,64 @@ func _setup_escort() -> void:
 		if int(cfg.get("aa", 0)) > 0 and randf() < 0.4:
 			units.spawn("manpads", 1, ap, grp2, {"order": "hold"})
 		var cid := add_contact(units.members(grp2), "AMBUSH")
-		data.ambush.append({"pos": ap, "group": grp2, "on": false, "side": side, "cid": cid})
-	data.ied = int(round(0.5 * pts.size())) if level >= 2.0 else -1
+		data.ambush.append({"pos": ap, "group": grp2, "state": "waiting", "n": units.count(grp2), "side": side, "cid": cid, "broke": false})
+	# the IED is only set off by a trigger man watching the road from cover;
+	# if he's dead by the time the convoy gets there, nothing happens
+	data.ied = -1
+	if level >= 2.0:
+		var ii := int(round(0.5 * pts.size()))
+		var ip: Vector3 = pts[ii]
+		var f2: Vector3 = (pts[mini(ii + 1, pts.size() - 1)] - pts[maxi(ii - 1, 0)]).normalized()
+		var s2 := Vector3(-f2.z, 0, f2.x) * (1.0 if randf() < 0.5 else -1.0)
+		var tm = units.spawn("rifle", 1, ring_point(ip + s2 * randf_range(120.0, 200.0), 0.0, 20.0), "ied", {"order": "hold"})
+		tm.data["hide_r"] = 90.0
+		data.ied = ii
 	data.halt_t = 0.0
 	data.halted = false
 	radio("ROADRUNNER 2-6", "Spectre, Roadrunner 2-6. Four vehicles, VIP in the MRAP. Rolling for %s now. Watch the route ahead of us." % data.dest)
+
+
+## An ambush lies in wait until the convoy is close, then attacks. Hit it
+## first and it's blown: the survivors fight from where they are. Lose half
+## of them and the rest break and run. Nobody springs a dead ambush.
+func _update_ambush(a: Dictionary, vip) -> void:
+	var alive: Array = units.members(a.group)
+	var d: float = vip.pos.distance_to(a.pos)
+	match a.state:
+		"waiting":
+			if alive.is_empty():
+				a.state = "dead"
+			elif alive.size() < int(a.n):
+				a.state = "blown"
+				call_contact(int(a.get("cid", 0)))
+				var rel: Vector3 = a.pos - vip.pos
+				radio("ROADRUNNER 2-6", "Spectre's hitting fighters %s of us, %s up the road. Keep it up." % [compass(rel), meters(rel.length())])
+			elif d < 650.0:
+				a.state = "sprung"
+				call_contact(int(a.get("cid", 0)))
+				for u in alive:
+					# missile teams stay put as overwatch; the rest close in
+					if u.beh == "aa":
+						continue
+					u.order = "assault"
+					u.goal = vip.pos + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
+				var rel: Vector3 = a.pos - vip.pos
+				radio("ROADRUNNER 2-6", "Contact %s! Ambush, %s!" % [compass(rel), meters(rel.length())])
+		"dead":
+			if d < 500.0:
+				a.state = "passed"
+				radio("ROADRUNNER 2-6", ["Passing the position you hit. Bodies everywhere, nobody moving.", "That was an ambush site, Spectre. Nothing left of it. Good work."][randi() % 2])
+	if a.state in ["blown", "sprung"] and not a.broke and alive.size() * 2 < int(a.n) and not alive.is_empty():
+		a.broke = true
+		var c := Vector3.ZERO
+		for u in alive:
+			c += u.pos
+		c /= alive.size()
+		var away: Vector3 = (c - vip.pos)
+		away.y = 0.0
+		for u in alive:
+			units.panic(u, away.normalized(), randf_range(60.0, 120.0))
+		radio("ROADRUNNER 2-6", "They're breaking contact, running %s." % compass(away))
 
 
 func _place_name(p: Vector3) -> String:
@@ -662,23 +715,18 @@ func _update_escort(dt: float) -> void:
 		if not battle.gunship.manual_orbit:
 			battle.gunship.set_orbit(vip.pos + Vector3(-sin(vip.heading), 0, -cos(vip.heading)) * 300.0, false)
 	for a in data.ambush:
-		if not a.on and vip.pos.distance_to(a.pos) < 650.0:
-			a.on = true
-			call_contact(int(a.get("cid", 0)))
-			for u in units.members(a.group):
-				u.order = "assault"
-				u.goal = vip.pos + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
-			var rel: Vector3 = a.pos - vip.pos
-			radio("ROADRUNNER 2-6", "Contact %s! Ambush, %s!" % [compass(rel), meters(rel.length())])
+		_update_ambush(a, vip)
 	if int(data.ied) > 0 and vip.path_i >= int(data.ied) - 2:
 		var lead = null
 		for u in units.members("convoy"):
 			if lead == null or u.path_i > lead.path_i:
 				lead = u
-		if lead != null:
+		if lead != null and units.count("ied") > 0:
 			battle.ordnance.explode(lead.pos + Vector3(4, 0, 3), {"dmg": 500.0, "radius": 9.0, "pen": 2, "fx": "large"}, false, "")
 			radio("ROADRUNNER 2-6", "IED! IED! Lead vehicle is hit, we're stopped!")
 			data.halt_t = 12.0
+			for u in units.members("ied"):
+				u.data.erase("hide_r")
 		data.ied = -1
 	var near: int = units.enemies_near(vip.pos, 380.0)
 	if near >= 3:

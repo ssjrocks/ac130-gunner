@@ -479,9 +479,9 @@ func kill(u: U, by_player: bool, wid: String) -> void:
 
 
 ## Runs from something (a show of force) for dur seconds, then goes back to
-## what it was doing. The infected don't care.
+## what it was doing.
 func panic(u: U, away: Vector3, dur: float) -> void:
-	if not u.alive or u.boarded or u.beh in ["static", "heli", "zombie"] or dur <= 1.0:
+	if not u.alive or u.boarded or u.beh in ["static", "heli"] or dur <= 1.0:
 		return
 	var dist := randf_range(150.0, 350.0) * (2.0 if u.veh else 1.0)
 	if u.beh == "civ":
@@ -862,6 +862,7 @@ func _move(u: U, dt: float) -> void:
 	if u.beh == "zombie" and d > 40.0 and u.data.has("flock"):
 		# drift toward the pack while still heading for the target
 		dirv = (dirv + u.data.flock).normalized()
+	spd *= slope_factor(u, dirv)
 	var np := u.pos + dirv * minf(spd * dt, d)
 	if u.climb_t > 0.0:
 		u.climb_t -= dt
@@ -890,6 +891,20 @@ func _move(u: U, dt: float) -> void:
 				u.climb_t = 3.0
 		u.stuck_t = 0.0
 		u.last_pos = u.pos
+
+
+## Speed on a slope. People follow Tobler's hiking function (fastest on a
+## slight downhill, a scramble on steep ground); vehicles labour uphill and
+## ease off downhill.
+func slope_factor(u: U, dirv: Vector3) -> float:
+	var h0: float = world.height(u.pos.x, u.pos.z)
+	var h1: float = world.height(u.pos.x + dirv.x * 4.0, u.pos.z + dirv.z * 4.0)
+	var g := (h1 - h0) / 4.0
+	if u.veh:
+		if g > 0.0:
+			return clampf(1.0 - g * 3.0, 0.15, 1.0)
+		return clampf(1.0 - (-g - 0.08) * 2.0, 0.4, 1.0)
+	return clampf(exp(-3.5 * absf(g + 0.05)) / exp(-0.175), 0.12, 1.1)
 
 
 func _arrived(u: U) -> void:

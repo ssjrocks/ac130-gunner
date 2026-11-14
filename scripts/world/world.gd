@@ -46,6 +46,10 @@ var terrain_mat: ShaderMaterial
 var tv := {}
 var gates := {}             # outpost site -> unit vector (x, z) its gate faces
 var road_nodes := PackedVector2Array()
+var baked := false             # terrain and roads come from assets/maps (tools/maps/bake.py)
+var far_h := PackedFloat32Array()
+var far_res := 0
+var far_span := 1.0
 var road_adj: Array = []
 
 
@@ -63,8 +67,10 @@ func build(m: Dictionary, time_of_day: String, weather: String) -> void:
 	bridges = m.get("bridges", [])
 	for t in m.get("towns", []):
 		towns.append(t.duplicate())
-	_setup_flats()
-	_gen_heights()
+	baked = _load_baked(String(m.get("id", "")))
+	if not baked:
+		_setup_flats()
+		_gen_heights()
 	_build_terrain_mesh()
 	_paint_roads()
 	_build_water()
@@ -78,6 +84,50 @@ func build(m: Dictionary, time_of_day: String, weather: String) -> void:
 
 
 # --- Height field -------------------------------------------------------
+
+## Loads the map's baked heights and graded roads. Roads keep the layout's
+## order, so missions' route indices still point at the same roads.
+func _load_baked(id: String) -> bool:
+	var path := "res://assets/maps/%s.ter" % id
+	if id == "" or not FileAccess.file_exists(path):
+		return false
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f.get_buffer(4).get_string_from_ascii() != "ACT2":
+		return false
+	var res := f.get_32()
+	far_res = f.get_32()
+	var core_size := f.get_float()
+	far_span = f.get_float()
+	if res != CORE_RES or not is_equal_approx(core_size, CORE):
+		return false
+	core_h = f.get_buffer(res * res * 4).to_float32_array()
+	far_h = f.get_buffer(far_res * far_res * 4).to_float32_array()
+	var rf := FileAccess.open("res://assets/maps/%s_roads.json" % id, FileAccess.READ)
+	if rf:
+		var data = JSON.parse_string(rf.get_as_text())
+		if data is Array and data.size() == roads.size():
+			for i in data.size():
+				var pts := PackedVector2Array()
+				for p in data[i]:
+					pts.append(Vector2(p[0], p[1]))
+				roads[i] = pts
+	return true
+
+
+## Heights outside the detailed core: the baked far grid, bilinear.
+func _far_height(x: float, z: float) -> float:
+	var fsp := far_span / far_res
+	var fx := clampf((x + far_span * 0.5) / fsp - 0.5, 0.0, far_res - 1.001)
+	var fz := clampf((z + far_span * 0.5) / fsp - 0.5, 0.0, far_res - 1.001)
+	var i := int(fx)
+	var j := int(fz)
+	var tx := fx - i
+	var tz := fz - j
+	var k := j * far_res + i
+	var a := lerpf(far_h[k], far_h[k + 1], tx)
+	var b := lerpf(far_h[k + far_res], far_h[k + far_res + 1], tx)
+	return lerpf(a, b, tz)
+
 
 func _setup_noise() -> void:
 	var s := int(map.get("seed", 1))
@@ -226,6 +276,8 @@ func height(x: float, z: float) -> float:
 			return h00 + (h10 - h00) * fx + (h11 - h10) * fz
 		var h01 := core_h[k + CORE_RES]
 		return h00 + (h11 - h01) * fx + (h01 - h00) * fz
+	if baked:
+		return _far_height(x, z)
 	return _raw_height(x, z)
 
 
@@ -269,7 +321,7 @@ func _build_terrain_mesh() -> void:
 			if ci >= 0 and ci < CORE_RES and cj >= 0 and cj < CORE_RES:
 				hgrid[j * n + i] = core_h[cj * CORE_RES + ci]
 			else:
-				hgrid[j * n + i] = _base_height(xs[i], xs[j])
+				hgrid[j * n + i] = _far_height(xs[i], xs[j]) if baked else _base_height(xs[i], xs[j])
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
 	verts.resize(n * n)
@@ -322,6 +374,7 @@ func _terrain_colors() -> void:
 	m.set_shader_parameter("biome", bi.get(biome, 0))
 	m.set_shader_parameter("core_size", CORE)
 	m.set_shader_parameter("water_level", water_level)
+	m.set_shader_parameter("field_top", float(map.get("field_top", 100000.0)))
 	match biome:
 		"desert":
 			_tc(Color(0.72, 0.62, 0.47), Color(0.64, 0.54, 0.4), Color(0.52, 0.45, 0.37), Color(0.5, 0.46, 0.4), Color(0.7, 0.62, 0.5), Color(0.42, 0.42, 0.28))
@@ -330,7 +383,7 @@ func _terrain_colors() -> void:
 		"mountain":
 			_tc(Color(0.52, 0.47, 0.38), Color(0.44, 0.4, 0.32), Color(0.42, 0.4, 0.38), Color(0.5, 0.46, 0.4), Color(0.6, 0.54, 0.44), Color(0.3, 0.34, 0.22))
 			m.set_shader_parameter("c_snow", Color(0.88, 0.9, 0.93))
-			m.set_shader_parameter("snow_line", 1500.0)
+			m.set_shader_parameter("snow_line", 1950.0)
 			dust_color = Color(0.58, 0.53, 0.45)
 		"green":
 			_tc(Color(0.36, 0.42, 0.24), Color(0.45, 0.42, 0.3), Color(0.42, 0.4, 0.35), Color(0.36, 0.35, 0.33), Color(0.5, 0.46, 0.38), Color(0.26, 0.36, 0.17))
@@ -340,7 +393,8 @@ func _terrain_colors() -> void:
 			_tc(Color(0.62, 0.57, 0.45), Color(0.55, 0.52, 0.4), Color(0.5, 0.47, 0.42), Color(0.33, 0.33, 0.33), Color(0.55, 0.53, 0.48), Color(0.35, 0.4, 0.24))
 			dust_color = Color(0.6, 0.56, 0.48)
 		"urban":
-			_tc(Color(0.4, 0.42, 0.3), Color(0.45, 0.43, 0.36), Color(0.45, 0.44, 0.42), Color(0.27, 0.27, 0.28), Color(0.42, 0.42, 0.4), Color(0.3, 0.36, 0.2))
+			# a dusty Afghan basin, a little scrub and garden green
+			_tc(Color(0.62, 0.56, 0.45), Color(0.55, 0.5, 0.41), Color(0.48, 0.44, 0.39), Color(0.27, 0.27, 0.28), Color(0.56, 0.52, 0.45), Color(0.34, 0.38, 0.24))
 			dust_color = Color(0.5, 0.49, 0.46)
 	var tarr: Array[Vector4] = []
 	for t in towns:

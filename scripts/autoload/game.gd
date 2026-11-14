@@ -276,8 +276,8 @@ func _setup_input() -> void:
 	_act("aim_down", [_k(KEY_DOWN), _ja(JOY_AXIS_RIGHT_Y, 1.0)])
 	_act("next_weapon", [_k(KEY_E), _jb(JOY_BUTTON_RIGHT_SHOULDER)])
 	_act("prev_weapon", [_k(KEY_Q), _jb(JOY_BUTTON_LEFT_SHOULDER)])
-	var keys := [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6]
-	for i in 6:
+	var keys := [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9]
+	for i in keys.size():
 		_act("weapon_%d" % (i + 1), [_k(keys[i])])
 	_act("view_mode", [_k(KEY_V), _jb(JOY_BUTTON_Y)])
 	_act("flares", [_k(KEY_F), _jb(JOY_BUTTON_B)])

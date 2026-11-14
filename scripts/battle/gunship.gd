@@ -189,7 +189,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 		_cycle(1)
 	elif ev.is_action_pressed("prev_weapon"):
 		_cycle(-1)
-	for k in 6:
+	for k in 9:
 		if ev.is_action_pressed("weapon_%d" % (k + 1)):
 			if support_mode:
 				if k < supports.size():

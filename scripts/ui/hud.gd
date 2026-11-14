@@ -646,7 +646,7 @@ func _draw_help(sz: Vector2) -> void:
 		"Wheel, W/S / left stick ... zoom    Z: wide/narrow",
 		"Left mouse / RT ........... fire",
 		"Right mouse / LT .......... laser   L: laser latch",
-		"Q E / bumpers, 1-6 ........ select weapon",
+		"Q E / bumpers, 1-9 ........ select weapon / support",
 		"V / Y ..................... sensor mode (TV NV WHT BHT)",
 		"G / X ..................... support calls (fire to call)",
 		"Wheel, , . / left stick X . turn a strafe line (A-10, show of force)",

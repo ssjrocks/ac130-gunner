@@ -1,6 +1,7 @@
 extends RefCounted
 ## Campaign missions and the generator for skirmish, survival and last stand.
 
+const CAMPAIGN_NAME := "AFGHANISTAN"
 const Maps := preload("res://scripts/data/maps.gd")
 
 const CHAPTERS := ["QUALIFICATION", "NIGHT SHIFT", "HEAVY METAL", "BLACK OPS", "OUTBREAK", "LAST ORBIT",
@@ -28,7 +29,7 @@ const CAMPAIGN := [
 		"brief": "Night over Ridge 471. COP Hawk is about to be hit from the mountains. Switch to night vision with V. Friendly troops wear IR strobes that blink in night vision."},
 	{"id": "c05", "chapter": 1, "name": "Shepherd", "map": "port", "time": "dusk", "type": "escort", "route": [1, false, 0.25, 1.0], "level": 2.0,
 		"civ": 0.6, "supports": {"s_hellfire": 2}, "xp": 1200, "grants": ["o_60"],
-		"brief": "Roadrunner 2-6 is moving a VIP through Port Salem to the docks. Scout the route ahead, break up ambushes and keep the MRAP alive. The orbit follows the convoy; press O to move it yourself. Use your laser (right mouse) to guide the Reaper's Hellfire."},
+		"brief": "Roadrunner 2-6 is moving a VIP through Qala Bandar to the docks. Scout the route ahead, break up ambushes and keep the MRAP alive. The orbit follows the convoy; press O to move it yourself. Use your laser (right mouse) to guide the Reaper's Hellfire."},
 	{"id": "c06", "chapter": 1, "name": "Hornet's Nest", "map": "kharim", "time": "night", "type": "laststand", "site": "fob", "waves": 5, "level": 2.0,
 		"aa": 1, "friendlies": 14, "civ": 0.2, "armor": 0, "supports": {"s_hellfire": 2}, "xp": 1300, "grants": ["w_40"],
 		"brief": "FOB Anvil will be attacked tonight in waves. Hold for five. Expect shoulder-fired missiles: on a launch warning press F for flares. Climbing (PgUp) keeps you above most of them but spreads your rounds."},
@@ -50,10 +51,10 @@ const CAMPAIGN := [
 		"brief": "Three SAM sites have closed the valley to air traffic. Find and kill the launchers; intel only has rough locations. SAMs reach any altitude: watch for launches and use flares."},
 	{"id": "c12", "chapter": 3, "name": "Needle", "map": "port", "time": "day", "type": "hvt", "route": [0, true, 0.1, 0.55], "level": 2.0,
 		"civ": 0.9, "max_civ": 3, "supports": {"s_hellfire": 2}, "xp": 2400, "grants": ["o_150", "w_griffin"],
-		"brief": "A bomb-maker is leaving Port Salem in a white pickup with two technicals as escort. There are a lot of white pickups out there. Find the right one and kill it: three civilian casualties ends the mission."},
+		"brief": "A bomb-maker is leaving Qala Bandar in a white pickup with two technicals as escort. There are a lot of white pickups out there. Find the right one and kill it: three civilian casualties ends the mission."},
 	{"id": "c13", "chapter": 4, "name": "Patient Zero", "map": "lowtown", "time": "dusk", "type": "zombie", "site": "hospital", "duration": 360.0,
 		"survivors": 12, "min_survivors": 4, "civ": 0.0, "supports": {"s_hellfire": 2, "s_jdam": 1}, "xp": 2500, "grants": [],
-		"brief": "Something has gone very wrong in Lowtown. Twelve survivors are holed up in Mercy General and the dead are walking. Keep the hordes off the hospital until the evac helicopter arrives. Whatever this is runs them hot: on thermal they burn brighter than the living, and they sprint."},
+		"brief": "Something has gone very wrong in Mirzabad. Twelve survivors are holed up in Mercy General and the dead are walking. Keep the hordes off the hospital until the evac helicopter arrives. Whatever this is runs them hot: on thermal they burn brighter than the living, and they sprint."},
 	{"id": "c14", "chapter": 4, "name": "Dead City", "map": "lowtown", "time": "night", "type": "zombie", "site": "school", "duration": 480.0,
 		"survivors": 14, "min_survivors": 5, "civ": 0.0, "supports": {"s_jdam": 2, "s_hellfire": 3, "s_illum": 3}, "xp": 3000, "grants": ["s_tomahawk"],
 		"brief": "Night. A second group is trapped at Westfield High. The horde is bigger and some of them are much bigger. Use illumination rounds, use everything."},
@@ -96,22 +97,22 @@ const CAMPAIGN := [
 	{"id": "c26", "chapter": 7, "name": "Eyrie", "map": "ridge", "time": "night", "type": "cas", "site": "north_post",
 		"level": 3.5, "duration": 360.0, "interval": 70.0, "friendlies": 10, "armor": 1, "aa": 1, "civ": 0.2, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 3800,
 		"brief": "OP North is a handful of men on a spur above Sarband, and the enemy wants it back. Hold until the QRF climbs up to them."},
-	# --- Chapter 9: coast ----------------------------------------------------------
+	# --- Chapter 9: the river port ----------------------------------------------------------
 	{"id": "c27", "chapter": 8, "name": "Embassy Row", "map": "port", "time": "night", "type": "cas", "site": "embassy",
 		"level": 3.0, "duration": 360.0, "interval": 70.0, "friendlies": 12, "armor": 1, "civ": 0.8, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 3800,
-		"brief": "A mob has turned into an assault on the Embassy in the middle of Port Salem. The streets are full of civilians. Pick your targets carefully."},
+		"brief": "A mob has turned into an assault on the Embassy in the middle of Qala Bandar. The streets are full of civilians. Pick your targets carefully."},
 	{"id": "c28", "chapter": 8, "name": "Dockside", "map": "port", "time": "night", "type": "interdict",
 		"level": 3.5, "max_escape": 2, "civ": 0.6, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 3800,
-		"brief": "A truck convoy is running weapons from the hills down to the docks for a ship waiting offshore. Don't let it reach the city."},
+		"brief": "A truck convoy is running weapons from the hills down to the docks for a barge waiting to cross the river. Don't let it reach the city."},
 	{"id": "c29", "chapter": 8, "name": "Salt Wind", "map": "port", "time": "day", "type": "csar", "csar": {"crash": "crash2", "lz": "lz_crash2"},
 		"level": 3.0, "duration": 240.0, "aa": 1, "civ": 0.4, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 3800,
-		"brief": "A Navy helicopter went down north of the city near Marj. The crew are alive, but the town is waking up. Keep them alive until Pedro arrives."},
+		"brief": "A Navy helicopter on a border patrol went down north of the city near Marj. The crew are alive, but the town is waking up. Keep them alive until Pedro arrives."},
 	{"id": "c30", "chapter": 8, "name": "Haddah", "map": "port", "time": "dusk", "type": "strike", "strike": {"target": "hvt2", "op": "op2", "lz": "lz_sf2"},
 		"window": 150.0, "level": 3.0, "aa": 1, "civ": 0.4, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 4000,
 		"brief": "The bomb-maker's teacher is in Haddah. Viking 3-1 has eyes on his car. Kill it, then cover the team's run south to the pickup."},
 	{"id": "c31", "chapter": 8, "name": "Sentinel", "map": "port", "time": "night", "type": "sam", "sites": 3, "level": 3.0, "flares": 40,
 		"supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 4200,
-		"brief": "Three SAM batteries now cover Port Salem. Nothing else can fly until they're gone. Find and kill the launchers."},
+		"brief": "Three SAM batteries now cover Qala Bandar. Nothing else can fly until they're gone. Find and kill the launchers."},
 	# --- Chapter 10: river ----------------------------------------------------------
 	{"id": "c32", "chapter": 9, "name": "Linden", "map": "greenbelt", "time": "day", "weather": "haze", "type": "cas", "site": "fob",
 		"level": 3.0, "duration": 360.0, "interval": 70.0, "friendlies": 12, "armor": 1, "civ": 0.3, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 4000,
@@ -137,7 +138,7 @@ const CAMPAIGN := [
 		"brief": "It has spread to Kharim. The town emptied, then started walking toward FOB Anvil. Hold the gates until the last helicopter out."},
 	{"id": "c39", "chapter": 10, "name": "Dead Harbor", "map": "port", "time": "night", "type": "zombie", "site": "base", "duration": 450.0,
 		"survivors": 14, "min_survivors": 5, "civ": 0.0, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 4400,
-		"brief": "Port Salem has fallen. Camp Sentinel is the last lit window in the city. Fourteen people are waiting for a helicopter. Keep them alive."},
+		"brief": "Qala Bandar has fallen. Camp Sentinel is the last lit window in the city. Fourteen people are waiting for a helicopter. Keep them alive."},
 	{"id": "c40", "chapter": 10, "name": "Valley of the Dead", "map": "ridge", "time": "night", "type": "zombie", "site": "cop", "duration": 450.0,
 		"survivors": 12, "min_survivors": 4, "civ": 0.0, "supports": {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_illum": 2}, "xp": 4400,
 		"brief": "Even the mountains aren't safe. COP Hawk took in the villagers from Sarband, and the rest of Sarband is coming up the road after them."},
@@ -153,7 +154,7 @@ const CAMPAIGN := [
 		"brief": "Everything in the mountains is coming down on COP Hawk at once. Six waves, armor and SAM teams on the slopes."},
 	{"id": "c44", "chapter": 11, "name": "Cutting the Head", "map": "port", "time": "night", "type": "hvt", "level": 4.0, "civ": 0.7, "max_civ": 3,
 		"supports": {"s_hellfire": 3, "s_jdam": 3, "s_lgb18": 2, "s_tomahawk": 1, "s_illum": 3}, "xp": 5000,
-		"brief": "The enemy's leader is trying to slip out of Port Salem by road tonight in a white pickup with two technicals. This is the one we've been waiting for. Don't lose him."},
+		"brief": "The enemy's leader is trying to slip out of Qala Bandar by road tonight in a white pickup with two technicals. This is the one we've been waiting for. Don't lose him."},
 	{"id": "c45", "chapter": 11, "name": "Dragon's Teeth", "map": "greenbelt", "time": "night", "type": "sam", "sites": 4, "level": 4.0, "flares": 50,
 		"supports": {"s_hellfire": 3, "s_jdam": 3, "s_lgb18": 2, "s_tomahawk": 1, "s_illum": 3}, "xp": 5400,
 		"brief": "Four SAM batteries guard the river valley. Take them down and the air campaign can start."},

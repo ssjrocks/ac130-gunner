@@ -60,6 +60,13 @@ func begin(s: String) -> void:
 		flow_mode = true
 		_illum_test()
 		return
+	if parts[0] == "vista":
+		flow_mode = true
+		_vista_test(parts[1], parts[2] if parts.size() > 2 else "day")
+		return
+	if parts[0] == "dumpmaps":
+		_dump_maps(parts[1])
+		return
 	if parts[0] == "recsupport":
 		flow_mode = true
 		_recsupport_test()
@@ -1005,11 +1012,25 @@ func _support_test(kind: String, map_id: String) -> void:
 		"sof":
 			var grp: Array = b.units.squad(["rifle", "rifle", "emg", "rifle", "rpg", "rifle", "rifle", "rifle", "rifle", "rifle", "rifle", "rifle"], 1, c + dir.cross(Vector3.UP) * 70.0, 25.0, "e", {"order": "hold"})
 			var far: Array = b.units.squad(["rifle", "rifle", "rifle"], 1, c + dir.cross(Vector3.UP) * 700.0, 10.0, "far", {"order": "hold"})
+			var ours: Array = b.units.squad(["soldier", "soldier", "soldier", "soldier"], 0, c - dir.cross(Vector3.UP) * 60.0 + dir * 300.0, 10.0, "ours", {"order": "hold"})
+			var dead: Array = b.units.squad(["zombie", "zombie", "zombie", "zombie"], 1, c - dir.cross(Vector3.UP) * 60.0 - dir * 300.0, 10.0, "z", {"order": "hold"})
 			var start := {}
 			for u in grp + far:
 				start[u.id] = u.pos
 			b.support.show_of_force(c, ang, b.gunship.Data.SUPPORT["s_sof"])
-			await _wait_s(20.0)
+			var ours_ran := 0
+			var z_ran := 0
+			for k in 40:
+				await _wait_s(0.5)
+				for u in ours:
+					if u.data.has("panic_until") and not u.data.has("_counted"):
+						u.data["_counted"] = true
+						ours_ran += 1
+				for u in dead:
+					if u.data.has("panic_until") and not u.data.has("_counted"):
+						u.data["_counted"] = true
+						z_ran += 1
+			print("[support] show of force: %d of 4 friendly soldiers by the path panicked, %d of 4 infected scattered" % [ours_ran, z_ran])
 			var fled := 0
 			var dirs: Array = []
 			for u in grp:
@@ -1434,4 +1455,74 @@ func _recsupport_test() -> void:
 	print("[recsupport] calls at %.0f s, %d buildings dropped" % [b.time, mini(3, near.size())])
 	await _wait_s(40.0)
 	b.mission.lose("RECORDING TEST")
+
+
+## Writes every map layout as JSON for tools/maps/bake.py.
+func _dump_maps(path: String) -> void:
+	var M := load("res://scripts/data/maps.gd")
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(_jsonable(M.MAPS), " "))
+	f.close()
+	print("[dumpmaps] wrote ", path)
+	get_tree().quit()
+
+
+func _jsonable(v):
+	if v is Vector2:
+		return [v.x, v.y]
+	if v is Dictionary:
+		var d := {}
+		for k in v:
+			d[k] = _jsonable(v[k])
+		return d
+	if v is Array:
+		var a: Array = []
+		for x in v:
+			a.append(_jsonable(x))
+		return a
+	return v
+
+
+## Landscape shots from a free camera: the whole map from far off, the main
+## road from low down, and the town from the hills.
+func _vista_test(map_id: String, tod: String) -> void:
+	Game.start_mission(Missions.skirmish_cfg(map_id, "cas", tod, 1))
+	while _battle() == null or not _battle().built:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	b.gunship.bot = false
+	b.hud.visible = false
+	var w = b.world
+	var cam := Camera3D.new()
+	cam.far = 60000.0
+	cam.fov = 60.0
+	b.add_child(cam)
+	cam.make_current()
+	var town: Vector2 = w.towns[0].pos if not w.towns.is_empty() else Vector2.ZERO
+	var road: PackedVector2Array = w.roads[0]
+	var mid: Vector2 = road[road.size() / 2]
+	var nxt: Vector2 = road[mini(road.size() / 2 + 12, road.size() - 1)]
+	var dir := (nxt - mid).normalized()
+	var shots := [
+		["overview", Vector3(-5200, 3200, 5200), Vector3(0, 0, 0)],
+		["overview2", Vector3(5200, 2600, -4200), Vector3(0, 0, 0)],
+		["road", Vector3(mid.x - dir.x * 120.0, 0, mid.y - dir.y * 120.0), Vector3(nxt.x, 0, nxt.y)],
+		["town", Vector3(town.x + 1400, 0, town.y + 900), Vector3(town.x, 0, town.y)],
+		["hills", Vector3(-1800, 0, -1800), Vector3(400, 0, 400)],
+	]
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	for sh in shots:
+		var p: Vector3 = sh[1]
+		var t: Vector3 = sh[2]
+		if p.y == 0.0:
+			p.y = w.height(p.x, p.z) + (35.0 if sh[0] == "road" else 260.0)
+		t.y = w.height(t.x, t.z)
+		cam.global_position = p
+		cam.look_at(t, Vector3.UP)
+		await _frames(6)
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("vista_%s_%s.png" % [map_id, sh[0]]))
+		print("[vista] saved ", sh[0])
+	get_tree().quit()
 

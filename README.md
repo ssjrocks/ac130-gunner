@@ -5,8 +5,9 @@ above a battlefield. At 1x you see the whole valley and none of the people in
 it. Zoom in and they appear, tiny, a few kilometres away. Your rounds take
 seconds to land.
 
-Built with Godot 4.7. Everything (terrain, towns, models, sound) is generated in
-code, with no asset files.
+Built with Godot 4.7. Towns, effects and sound are generated in code. The
+terrain is baked offline by `tools/maps/bake.py`, and people, vehicles and
+aircraft are CC BY models from Sketchfab (see [CREDITS.md](CREDITS.md)).
 
 ## Features
 
@@ -29,10 +30,12 @@ code, with no asset files.
   forces team's laser.
 - **Threats to the aircraft:** MANPADS, SAM sites and triple-A. Flares, with
   timing that matters. Altitude choice: higher is safer but less accurate.
-- **Battlefields:** six procedural maps (desert valley, mountains, coastal
-  city, farmland with a river, open desert range, abandoned city), with
-  compounds, towns, roads, trees, water, destructible buildings, civilians and
-  traffic.
+- **Battlefields:** six maps of the Afghanistan campaign (a dry valley, a
+  mountain valley, a river port, the green zone below the desert plateau, an
+  open desert range and a city in a mountain basin). Eroded mountains with
+  ridges and gullies, roads graded and cut into the ground with switchbacks
+  where they climb, compounds, towns, trees, rivers, destructible buildings,
+  civilians and traffic. Troops and vehicles slow down on slopes.
 - **Mission types:** close air support, convoy escort, convoy interdiction,
   coordinated strike plus SF exfil, combat search and rescue, SAM hunt, HVT
   hunt among civilian traffic, outbreak (survivors against zombie hordes),
@@ -40,6 +43,9 @@ code, with no asset files.
 - **Modes:** a 46-mission campaign across 12 chapters, skirmish (any map and
   mission type), survival (endless calls for fire) and last stand (endless
   waves, against insurgents or zombies).
+- **Replays:** every finished sortie is recorded (the last 30 are kept). Watch
+  them from the Replays menu with a free-flying camera, the gunship's sensor
+  or a chase view of the AC-130, with pause, seek, speed and all sensor modes.
 - **Career:** 8 ranks from Airman to Chief Master Sergeant. Weapons, sensors,
   optics and support calls unlock with XP; campaign missions qualify you on
   equipment early.
@@ -63,7 +69,7 @@ code, with no asset files.
 | Wide / narrow FOV | Z | L3 |
 | Fire | Left mouse | RT |
 | Laser designator | Right mouse (hold), L to latch | LT |
-| Weapon | Q / E, 1-6 | LB / RB |
+| Weapon or support item | Q / E, 1-9 | LB / RB |
 | Sensor mode | V | Y |
 | Support calls (fire calls one) | G | X |
 | Turn a strafe line | Wheel, `,` `.` | Left stick |
@@ -108,6 +114,14 @@ godot --headless --path . --fixed-fps 30 -- --autotest=flow:1                   
 
 `--shots=DIR` with a normal (non-headless) run saves screenshots at several zoom
 levels and sensor modes.
+
+Maps: the layouts (towns, roads, mission sites) live in `scripts/data/maps.gd`.
+After changing one, export them and rebake the terrain and roads:
+
+```bash
+godot --headless --path . -- --autotest=dumpmaps:$PWD/build/maps/layouts.json
+python3 -I tools/maps/bake.py build/maps/layouts.json assets/maps
+```
 
 Code layout: `scripts/world` (terrain, towns, shaders, models),
 `scripts/battle` (gunship, units and AI, ordnance, effects, mission logic),

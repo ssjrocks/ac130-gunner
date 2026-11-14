@@ -232,6 +232,7 @@ uniform vec3 c_snow : source_color = vec3(0.9, 0.92, 0.95);
 uniform float snow_line = 100000.0;
 uniform float water_level = -10000.0;
 uniform float base_heat = 0.22;
+uniform float field_top = 100000.0;   // irrigated fields only below this height
 uniform vec4 towns[8];
 uniform int town_count = 0;
 varying vec3 wpos;
@@ -281,6 +282,9 @@ void fragment() {
 		float edge = 1.0 - smoothstep(0.0, 0.035, min(min(fq.x, 1.0 - fq.x), min(fq.y, 1.0 - fq.y)));
 		fc = mix(fc, c_veg * 0.6, edge * 0.7);
 		veg = (1.0 - town) * smoothstep(0.25, 0.4, n1 + 0.2) * (biome == 3 ? 0.6 : 1.0);
+		// irrigation reaches the low, level ground by the river and no higher
+		veg *= 1.0 - smoothstep(field_top - 3.0, field_top + 3.0, wpos.y + (n2 - 0.5) * 6.0);
+		veg *= 1.0 - smoothstep(0.04, 0.12, slope);
 		c = mix(c, fc * (0.9 + 0.2 * n3), veg * 0.9);
 	} else if (biome == 4) {
 		c = mix(c, c_veg * (0.8 + 0.4 * n2), (1.0 - town) * 0.6);

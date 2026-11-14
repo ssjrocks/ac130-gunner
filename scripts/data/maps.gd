@@ -68,10 +68,10 @@ const MAPS := {
 		"spawns": [Vector2(1800, -500), Vector2(-1800, 350), Vector2(0, 1900), Vector2(-700, -1900), Vector2(1500, 1700), Vector2(-1600, -1400)],
 	},
 	"port": {
-		"name": "PORT SALEM", "biome": "coastal", "seed": 2207, "tree_count": 1800, "water": 0.0, "coast_x": 1950.0,
-		"desc": "A dense coastal city and its docks. Civilians everywhere, tight streets, the sea to the east.",
+		"name": "QALA BANDAR", "biome": "coastal", "field_top": 12.0, "seed": 2207, "tree_count": 1800, "water": 0.0, "coast_x": 1950.0,
+		"desc": "A crowded river port on the border river, with its docks and wharves. Civilians everywhere, tight streets, the river to the east.",
 		"towns": [
-			{"name": "Salem", "pos": Vector2(350, 0), "r": 700.0, "style": "city"},
+			{"name": "Qala Bandar", "pos": Vector2(350, 0), "r": 700.0, "style": "city"},
 			{"name": "Docks", "pos": Vector2(1500, 380), "r": 260.0, "style": "industrial"},
 			{"name": "Haddah", "pos": Vector2(-1500, -900), "r": 200.0, "style": "village"},
 			{"name": "Marj", "pos": Vector2(-900, 1300), "r": 180.0, "style": "compound"},
@@ -100,8 +100,8 @@ const MAPS := {
 		"spawns": [Vector2(-2300, 0), Vector2(-1200, -2100), Vector2(-1800, 1900), Vector2(300, 2300), Vector2(300, -2300)],
 	},
 	"greenbelt": {
-		"name": "GREENBELT", "biome": "green", "seed": 7319, "tree_count": 9000, "water": 24.0,
-		"desc": "Farmland, orchards and tree lines cut by a river. Lots of cover for the enemy.",
+		"name": "GREENBELT", "biome": "green", "field_top": 46.0, "seed": 7319, "tree_count": 9000, "water": 24.0,
+		"desc": "The green zone: fields, orchards and tree lines along a river, with open desert on the plateau above. Lots of cover for the enemy.",
 		"river": [Vector2(-700, -4200), Vector2(-350, -2000), Vector2(-300, -1000), Vector2(-500, 0), Vector2(-250, 1300), Vector2(-450, 2600), Vector2(-300, 4200)],
 		"towns": [
 			{"name": "Merin", "pos": Vector2(700, 500), "r": 230.0, "style": "village"},
@@ -161,10 +161,10 @@ const MAPS := {
 		"spawns": [Vector2(-2300, -500), Vector2(2300, 400), Vector2(500, 2300), Vector2(-500, -2300), Vector2(2200, -2000)],
 	},
 	"lowtown": {
-		"name": "LOWTOWN", "biome": "urban", "seed": 6660, "tree_count": 2500,
-		"desc": "An abandoned city grid. Long straight streets, rooftops and a lot of places for things to come from.",
+		"name": "MIRZABAD", "biome": "urban", "seed": 6660, "tree_count": 2500,
+		"desc": "A city laid out in a grid in a mountain basin. Long straight streets, rooftops and a lot of places for things to come from.",
 		"towns": [
-			{"name": "Lowtown", "pos": Vector2(0, 0), "r": 1150.0, "style": "mixed", "ang": 0.0},
+			{"name": "Mirzabad", "pos": Vector2(0, 0), "r": 1150.0, "style": "mixed", "ang": 0.0},
 		],
 		"roads": [
 			"grid:0,0,1350,160",
@@ -194,7 +194,10 @@ const ORDER := ["kharim", "ridge", "port", "greenbelt", "flats", "lowtown"]
 
 
 static func get_map(id: String) -> Dictionary:
-	return MAPS.get(id, MAPS["kharim"])
+	var key := id if MAPS.has(id) else "kharim"
+	var m: Dictionary = MAPS[key].duplicate()
+	m["id"] = key
+	return m
 
 
 static func site_name(m: Dictionary, site: String) -> String:

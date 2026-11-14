@@ -134,6 +134,8 @@ func set_view_mode(m: int) -> void:
 func radio(who: String, text: String) -> void:
 	if recorder:
 		recorder.note("radio", [who, text])
+	if Game.autotest != "":
+		print("[radio %.0f] %s: %s" % [time, who, text])
 	if hud:
 		hud.radio(who, text)
 	Sfx.play("beep", -12.0)

@@ -133,7 +133,8 @@ func _update_sof(r: Dictionary, dt: float) -> bool:
 func _scare_from(r: Dictionary, p: Vector3) -> void:
 	var right: Vector3 = r.dir.cross(Vector3.UP).normalized()
 	for u in battle.units.query(p, 260.0):
-		if not u.alive or r.scared.has(u.id):
+		# our own troops know it's coming; everyone else scatters
+		if not u.alive or u.team == 0 or r.scared.has(u.id):
 			continue
 		var rel: Vector3 = u.pos - p
 		var off := rel.dot(right)
