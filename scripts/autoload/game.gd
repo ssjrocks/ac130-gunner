@@ -71,12 +71,17 @@ func finish_mission(result: Dictionary) -> void:
 
 
 func loadout_for(cfg: Dictionary) -> Array:
-	var out: Array
+	var avail: Array
 	var mode: String = cfg.get("mode", "campaign")
 	if mode != "campaign" and settings.get("loadout", "career") == "all":
-		out = Data.all_unlocks()
+		avail = Data.all_unlocks()
 	else:
-		out = unlocked_list()
+		avail = unlocked_list()
+	# sensors and optics always come along; weapons and call-ins are the
+	# player's picks (up to one per number key)
+	var out: Array = avail.filter(func(x): return not (x.begins_with("w_") or x.begins_with("s_")))
+	out.append_array(chosen("w", avail))
+	out.append_array(chosen("s", avail))
 	for x in cfg.get("loadout_add", []):
 		if x not in out:
 			out.append(x)
@@ -84,6 +89,31 @@ func loadout_for(cfg: Dictionary) -> Array:
 		var only: Array = cfg.only
 		out = out.filter(func(x): return x in only or not x.begins_with("w_"))
 	return out
+
+
+## The weapons ("w") or call-ins ("s") the player has picked, among those
+## available, in the order picked (that's the number keys). Nothing picked
+## yet: the usual set, then newer unlocks.
+func chosen(kind: String, avail: Array) -> Array:
+	var order: Array = Data.WEAPON_ORDER if kind == "w" else Data.SUPPORT_ORDER
+	var base: Array
+	if career.has("loadout_" + kind):
+		base = career["loadout_" + kind]
+	else:
+		base = Data.DEFAULT_LOADOUT[kind].duplicate()
+		for id in order:
+			if id not in base:
+				base.append(id)
+	var out: Array = []
+	for id in base:
+		if id in avail and id in order and id not in out:
+			out.append(id)
+	return out.slice(0, Data.LOADOUT_SLOTS)
+
+
+func set_chosen(kind: String, ids: Array) -> void:
+	career["loadout_" + kind] = ids.duplicate()
+	save_career()
 
 
 # --- Career ---------------------------------------------------------------

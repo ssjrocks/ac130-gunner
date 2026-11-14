@@ -85,8 +85,9 @@ func setup(cfg: Dictionary, loadout: Array) -> void:
 	cam.far = 60000.0
 	add_child(cam)
 	cam.current = true
-	for id in Data.WEAPON_ORDER:
-		if id in loadout:
+	# in loadout order: that's what the number keys follow
+	for id in loadout:
+		if Data.WEAPONS.has(id):
 			var def: Dictionary = Data.WEAPONS[id]
 			var total: int = def.get("total", -1)
 			weapons.append({"id": id, "def": def, "ammo": def.mag, "reload_t": 0.0, "cd": 0.0, "spare": total - 1 if total > 0 else -1})
@@ -105,9 +106,9 @@ func setup(cfg: Dictionary, loadout: Array) -> void:
 		mag_max = 150.0
 	has_laser = "laser" in loadout or "w_griffin" in loadout or "w_lgb" in loadout
 	var sup: Dictionary = cfg.get("supports", {})
-	for sid in Data.SUPPORT_ORDER:
-		if sup.has(sid) and sid in loadout:
-			supports.append({"id": sid, "def": Data.SUPPORT[sid], "charges": int(sup[sid])})
+	for sid in loadout:
+		if Data.SUPPORT.has(sid) and sup.has(sid):
+			supports.append({"id": sid, "def": Data.SUPPORT[sid], "charges": int(sup[sid]), "ready_t": 0.0})
 	var diff: Dictionary = Data.DIFFICULTY[clampi(int(cfg.get("difficulty", 1)), 0, 2)]
 	auto_flares = diff.auto_flares
 	plane_dmg = diff.plane_dmg
@@ -512,6 +513,12 @@ func _altitude_radio(dt: float) -> void:
 
 
 func _weapons(dt: float) -> void:
+	for s in supports:
+		if float(s.ready_t) > 0.0:
+			s.ready_t = maxf(float(s.ready_t) - dt, 0.0)
+			if s.ready_t <= 0.0:
+				battle.radio("STRIKE", "%s is ready again." % String(s.def.short))
+	_update_atl(dt)
 	for w in weapons:
 		w.cd = maxf(float(w.cd) - dt, -0.1)
 		if w.reload_t > 0.0:
@@ -539,7 +546,7 @@ func _weapons(dt: float) -> void:
 			cur.reload_t = float(cur.def.reload)
 	else:
 		cur.cd = maxf(float(cur.cd), 0.0)
-	var mg: bool = can and cur.id == "w_762"
+	var mg: bool = can and (cur.id == "w_762" or cur.def.get("loop", false))
 	if mg != mg_on:
 		mg_on = mg
 		Sfx.loop("mg", mg, -3.0)
@@ -550,6 +557,9 @@ func _shoot(w: Dictionary) -> void:
 	shots += 1
 	battle.stats.shots += 1
 	var origin := global_position + left * 4.0 + Vector3(0, -2.5, 0)
+	if def.get("beam", false):
+		_laser_pulse(w, def)
+		return
 	if def.has("guided"):
 		var target: Vector3 = aim_point
 		var spot = battle.laser_point()
@@ -586,11 +596,64 @@ func _shoot(w: Dictionary) -> void:
 		Sfx.play(def.sound, -2.0, randf_range(0.95, 1.05))
 
 
+## Uses up a charge, or starts the reload of a call-in that never runs out.
+func _spend(s: Dictionary) -> void:
+	if int(s.charges) < 0:
+		s.ready_t = float(s.def.get("cooldown", 60.0))
+	else:
+		s.charges = int(s.charges) - 1
+
+
+## One pulse of the Advanced Tactical Laser: lands the instant it's fired,
+## exactly where the sensor looks (no dispersion, no lead needed).
+func _laser_pulse(w: Dictionary, def: Dictionary) -> void:
+	var cpos := global_position + Vector3(0, -3.0, 0)
+	var hit: Dictionary = battle.world.raycast(cpos, look_dir, 30000.0)
+	if hit.is_empty():
+		return
+	var p: Vector3 = hit.pos
+	var kills: int = battle.units.damage_area(p, float(def.radius), float(def.dmg), int(def.pen), true, w.id)
+	battle.world.damage_buildings(p, float(def.radius), float(def.dmg) * 0.4, int(def.pen), int(hit.get("bidx", -1)))
+	battle.on_player_impact(p, def, kills)
+	atl_hit = p
+	atl_t = 0.18
+	battle.effects.spawn("glow", p + Vector3(0, 0.4, 0), {"life": 0.12, "s0": 0.8, "s1": 1.4, "a0": 1.0, "a1": 0.3,
+		"c": Color(2.5, 1.4, 0.8), "h0": 1.0, "h1": 1.0, "px": 2.5})
+	if randf() < 0.3:
+		battle.effects.smoke_trail(p, false, 0.8, 2.0)
+
+
+var atl_beam: MeshInstance3D
+var atl_hit := Vector3.ZERO
+var atl_t := 0.0
+
+
+func _update_atl(dt: float) -> void:
+	atl_t -= dt
+	if atl_t <= 0.0:
+		if atl_beam:
+			atl_beam.visible = false
+		return
+	if atl_beam == null:
+		atl_beam = battle.effects.take("beam")
+		atl_beam.set_instance_shader_parameter("fx_color", Color(1.6, 0.5, 0.4))
+		atl_beam.set_instance_shader_parameter("fx_heat", 1.0)
+	atl_beam.visible = true
+	# barely visible to the eye, glaring on thermal
+	atl_beam.set_instance_shader_parameter("fx_alpha", 0.9 if Game.view_mode >= 2 else 0.18)
+	battle.effects.set_beam(atl_beam, global_position + left * 4.0 + Vector3(0, -2.5, 0), atl_hit, 0.15, 1.0)
+
+
 func _call_support() -> void:
 	if supports.is_empty():
 		return
 	var s: Dictionary = supports[ssel]
-	if int(s.charges) <= 0:
+	var unlimited: bool = int(s.charges) < 0
+	if unlimited and float(s.ready_t) > 0.0:
+		Sfx.play("click", -4.0, 0.6)
+		battle.hud.message("RELOADING, %d SECONDS" % ceili(float(s.ready_t)), 1.5)
+		return
+	if not unlimited and int(s.charges) <= 0:
 		Sfx.play("click", -4.0, 0.6)
 		battle.hud.message("NO CHARGES LEFT", 1.5)
 		return
@@ -606,7 +669,7 @@ func _call_support() -> void:
 			if def.kind == "qrf" and not battle.world.map.get("sites", {}).has("qrf"):
 				battle.hud.message("NO QRF BASE ON THIS MAP", 1.5)
 				return
-			s.charges = int(s.charges) - 1
+			_spend(s)
 			match def.kind:
 				"gunrun":
 					battle.support.gun_run(aim_point, line_ang, def)
@@ -621,21 +684,34 @@ func _call_support() -> void:
 			Sfx.play("lock", -4.0)
 			support_mode = false
 			return
-	s.charges = int(s.charges) - 1
+	_spend(s)
 	var target := aim_point
 	var tot: float = def.tot
 	var count: int = def.get("count", 1)
 	var dir := Vector2(randf() - 0.5, randf() - 0.5).normalized()
 	for k in count:
 		var t2 := target
-		if count > 1:
+		if def.has("scatter"):
+			# a barrage: each round lands somewhere in the beaten zone
+			var r := sqrt(randf()) * float(def.scatter)
+			var a := randf() * TAU
+			t2 += Vector3(cos(a) * r, 0, sin(a) * r)
+			t2.y = battle.world.height(t2.x, t2.z)
+		elif count > 1:
 			var off := (k - (count - 1) * 0.5) * float(def.get("spread", 15.0))
 			t2 += Vector3(-dir.y, 0, dir.x) * off
 			t2.y = battle.world.height(t2.x, t2.z)
 		var start := t2 + Vector3(dir.x * 3000.0, 6500.0, dir.y * 3000.0)
-		if def.kind == "missile":
-			start = t2 + Vector3(dir.x * 3500.0, 4500.0, dir.y * 3500.0)
-		battle.ordnance.launch_guided(def.kind, def, start, t2, tot + k * 0.9, def.guide, true, s.id)
+		match def.kind:
+			"missile":
+				start = t2 + Vector3(dir.x * 3500.0, 4500.0, dir.y * 3500.0)
+			"shell":
+				start = t2 + Vector3(dir.x * 9000.0, 0.0, dir.y * 9000.0)
+			"smoke":
+				start = t2 + Vector3(dir.x * 3500.0, 0.0, dir.y * 3500.0)
+			"rocket":
+				start = t2 + Vector3(dir.x * 30000.0, 0.0, dir.y * 30000.0)
+		battle.ordnance.launch_guided(def.kind, def, start, t2, tot + k * float(def.get("stagger", 0.9)), def.guide, true, s.id)
 	battle.radio("STRIKE", def.radio % int(tot))
 	Sfx.play("lock", -4.0)
 	support_mode = false

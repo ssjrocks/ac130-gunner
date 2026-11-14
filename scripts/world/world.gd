@@ -46,6 +46,7 @@ var terrain_mat: ShaderMaterial
 var tv := {}
 var gates := {}             # outpost site -> unit vector (x, z) its gate faces
 var road_nodes := PackedVector2Array()
+var smokes: Array = []         # [centre, radius, until (battle time)]: smoke screens block sight
 var baked := false             # terrain and roads come from assets/maps (tools/maps/bake.py)
 var far_h := PackedFloat32Array()
 var far_res := 0
@@ -1292,19 +1293,30 @@ func raycast(o: Vector3, d: Vector3, maxd := 30000.0) -> Dictionary:
 ## with_buildings) houses and other buildings. Compound walls don't block
 ## (people fire over them), nor does anything within 8 m of either end
 ## (firing from a doorway or round a corner).
+## Clear line from a to b? Terrain is sampled every 6 m. A building blocks
+## any line that passes through it, even right next to the shooter. A wall
+## blocks too, unless one end is within 12 m of it: that's someone firing
+## over the wall they're standing behind.
 func los(a: Vector3, b: Vector3, with_buildings := true) -> bool:
 	var d := b - a
 	var L := d.length()
 	if L < 2.0:
 		return true
-	var n := clampi(int(L / 12.0), 2, 150)
+	var n := clampi(int(L / 6.0), 2, 500)
 	for i in range(1, n):
 		var f := float(i) / n
-		if f * L < 5.0 or (1.0 - f) * L < 5.0:
+		if f * L < 3.0 or (1.0 - f) * L < 3.0:
 			continue
 		var p := a + d * f
 		if p.y < height(p.x, p.z) - 0.3:
 			return false
+	if not smokes.is_empty() and battle:
+		var now: float = battle.time
+		for sm in smokes:
+			if now > float(sm[2]):
+				continue
+			if _seg_sphere(a, b, sm[0], sm[1]):
+				return false
 	if not with_buildings:
 		return true
 	var dir := d / L
@@ -1320,13 +1332,63 @@ func los(a: Vector3, b: Vector3, with_buildings := true) -> bool:
 					continue
 				seen[bi] = true
 				var bd: Dictionary = buildings[bi]
-				if not bd.alive or bd.kind == "wall":
+				if not bd.alive:
 					continue
-				var tb := _ray_box(a, dir, bd)
-				if tb > 8.0 and tb < L - 8.0:
-					return false
+				var span := _ray_span(a, dir, bd)
+				if span.x < 0.0:
+					continue
+				var t0 := maxf(span.x, 0.0)
+				var t1 := minf(span.y, L)
+				if t1 - t0 < 0.2 or t0 > L - 1.0 or t1 < 1.0:
+					continue
+				if bd.kind == "wall" and (t0 < 12.0 or t1 > L - 12.0):
+					continue
+				return false
 		k += step
 	return true
+
+
+func add_smoke(c: Vector3, r: float, until: float) -> void:
+	smokes.append([c + Vector3.UP * r * 0.4, r, until])
+
+
+static func _seg_sphere(a: Vector3, b: Vector3, c: Vector3, r: float) -> bool:
+	var ab := b - a
+	var t := clampf((c - a).dot(ab) / maxf(ab.length_squared(), 0.001), 0.0, 1.0)
+	return (a + ab * t).distance_to(c) < r
+
+
+## Where a ray enters and leaves a building's box: (entry, exit) along the
+## ray, or (-1, -1) if it misses.
+func _ray_span(o: Vector3, d: Vector3, b: Dictionary) -> Vector2:
+	var ca: float = b.ca
+	var sa: float = b.sa
+	var dx: float = o.x - b.c.x
+	var dz: float = o.z - b.c.z
+	var lo := Vector3(dx * ca - dz * sa, o.y, dx * sa + dz * ca)
+	var ld := Vector3(d.x * ca - d.z * sa, d.y, d.x * sa + d.z * ca)
+	var mn := Vector3(-b.w * 0.5, b.base, -b.d * 0.5)
+	var mx := Vector3(b.w * 0.5, b.top, b.d * 0.5)
+	var tmin := -1.0e9
+	var tmax := 1.0e9
+	for ax in 3:
+		if absf(ld[ax]) < 1.0e-6:
+			if lo[ax] < mn[ax] or lo[ax] > mx[ax]:
+				return Vector2(-1, -1)
+		else:
+			var t1 := (mn[ax] - lo[ax]) / ld[ax]
+			var t2 := (mx[ax] - lo[ax]) / ld[ax]
+			if t1 > t2:
+				var tt := t1
+				t1 = t2
+				t2 = tt
+			tmin = maxf(tmin, t1)
+			tmax = minf(tmax, t2)
+			if tmin > tmax:
+				return Vector2(-1, -1)
+	if tmax < 0.0:
+		return Vector2(-1, -1)
+	return Vector2(tmin, tmax)
 
 
 func _ray_box(o: Vector3, d: Vector3, b: Dictionary) -> float:

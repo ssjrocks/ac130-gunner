@@ -164,7 +164,8 @@ const CAMPAIGN := [
 ]
 
 const DEFAULT_SUPPORTS := {"s_hellfire": 3, "s_jdam": 2, "s_lgb18": 1, "s_tomahawk": 1, "s_illum": 3,
-	"s_a10": 1, "s_sof": 2, "s_qrf": 1, "s_heli": 1}
+	"s_a10": 1, "s_sof": 2, "s_qrf": 1, "s_heli": 1, "s_arty": -1, "s_gmlrs": 2, "s_cbu": 1, "s_smoke": 3, "s_switchblade": 3}
+
 
 # The newer call-ins each mission type gets on top of its own list.
 const TYPE_SUPPORTS := {
@@ -189,6 +190,12 @@ static func campaign_cfg(i: int) -> Dictionary:
 	for sid in TYPE_SUPPORTS.get(c.type, {}):
 		if not c.supports.has(sid):
 			c.supports[sid] = TYPE_SUPPORTS[c.type][sid]
+	# whatever else is in the player's loadout comes along with one charge
+	# (the artillery runs on its reload timer instead)
+	if c.type != "range":
+		for sid in DEFAULT_SUPPORTS:
+			if not c.supports.has(sid):
+				c.supports[sid] = -1 if int(DEFAULT_SUPPORTS[sid]) < 0 else 1
 	return c
 
 

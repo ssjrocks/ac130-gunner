@@ -36,6 +36,7 @@ var brief_label: RichTextLabel
 var launch_btn: Button
 var update_box: HBoxContainer
 var opts := {"map": 0, "type": 0, "time": 0, "diff": 1, "zombies": false}
+var loadout_back := "title"   # where the loadout screen's BACK returns to
 
 
 func _ready() -> void:
@@ -81,6 +82,10 @@ func show_screen(sname: String, arg = null) -> void:
 			_controls()
 		"credits":
 			_credits()
+		"loadout":
+			if arg != null:
+				loadout_back = str(arg)
+			_loadout()
 		"replays":
 			_replays()
 		"debrief":
@@ -118,6 +123,10 @@ func _unhandled_input(ev: InputEvent) -> void:
 func _back() -> void:
 	if screen == "settings":
 		Game.save_settings()
+	if screen == "loadout":
+		show_screen(loadout_back)
+		loadout_back = "title"
+		return
 	show_screen("title")
 
 
@@ -213,6 +222,7 @@ func _title() -> void:
 	_button(col, "SKIRMISH", func(): show_screen("skirmish"))
 	_button(col, "SURVIVAL", func(): show_screen("survival"))
 	_button(col, "LAST STAND", func(): show_screen("laststand"))
+	_button(col, "LOADOUT", func(): show_screen("loadout", "title"))
 	_button(col, "CAREER", func(): show_screen("career"))
 	_button(col, "REPLAYS", func(): show_screen("replays"))
 	_button(col, "SETTINGS", func(): show_screen("settings"))
@@ -296,7 +306,9 @@ func _campaign() -> void:
 	var row := _hbox(rv)
 	_label(row, "DIFFICULTY", 18)
 	_option(row, ["RECRUIT", "REGULAR", "VETERAN"], opts.diff, func(i): opts.diff = i)
-	launch_btn = _button(rv, "LAUNCH SORTIE", _launch_campaign)
+	var lrow := _hbox(rv)
+	launch_btn = _button(lrow, "LAUNCH SORTIE", _launch_campaign)
+	_button(lrow, "LOADOUT", func(): show_screen("loadout", "campaign"), 200)
 	_select_mission(first_open)
 
 
@@ -421,8 +433,10 @@ func _mode_screen(title: String, intro: String, extra: Callable, launch: Callabl
 	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc_label.custom_minimum_size = Vector2(900, 0)
 	_refresh_desc()
-	var b := _button(v, "LAUNCH", launch, 300)
+	var brow := _hbox(v)
+	var b := _button(brow, "LAUNCH", launch, 300)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_button(brow, "LOADOUT", func(): show_screen("loadout", screen), 200)
 
 
 func _skirmish() -> void:
@@ -619,6 +633,80 @@ func _replays() -> void:
 			DirAccess.remove_absolute(fp)
 			DirAccess.remove_absolute(fp + ".json")
 			show_screen("replays"), 140)
+
+
+# --- Loadout ------------------------------------------------------------------
+
+## Pick up to nine weapons and nine call-ins from what the career has
+## unlocked. The picks go on the number keys in the order listed.
+func _loadout() -> void:
+	var v := _vbox(body, 6)
+	_header(v, "LOADOUT")
+	var unl := Game.unlocked_list()
+	_label(v, "Pick up to %d weapons and %d call-ins; they go on the number keys in this order. Missions can still add or restrict items." % [Data.LOADOUT_SLOTS, Data.LOADOUT_SLOTS], 17, UiTheme.DIM).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 40)
+	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(cols)
+	for kind in ["w", "s"]:
+		var col := _vbox(cols, 4)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var order: Array = Data.WEAPON_ORDER if kind == "w" else Data.SUPPORT_ORDER
+		var pick: Array = Game.chosen(kind, unl)
+		_label(col, "%s   %d / %d" % ["WEAPONS" if kind == "w" else "CALL-INS", pick.size(), Data.LOADOUT_SLOTS], 22, UiTheme.ACCENT)
+		for id in order:
+			var def: Dictionary = Data.WEAPONS[id] if kind == "w" else Data.SUPPORT[id]
+			var row := _hbox(col)
+			var b := Button.new()
+			b.toggle_mode = true
+			b.custom_minimum_size = Vector2(330, 38)
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			var slot := pick.find(id)
+			if id not in unl:
+				b.disabled = true
+				b.text = "  LOCKED  %s" % String(def.short)
+			else:
+				b.text = ("  [%d] " % (slot + 1) if slot >= 0 else "  [ ] ") + String(def.short)
+				b.button_pressed = slot >= 0
+				b.toggled.connect(_toggle_pick.bind(kind, id))
+			row.add_child(b)
+			var info := String(Data.DESC.get(id, ""))
+			if id not in unl:
+				info = "Unlocks at %s. %s" % [_rank_for(id), info]
+			var l := _label(row, info, 15, UiTheme.DIM if id not in unl else UiTheme.FG)
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			l.custom_minimum_size = Vector2(380, 0)
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+
+func _rank_for(id: String) -> String:
+	for r in Data.RANKS:
+		if id in r.unlocks:
+			return String(r.name).to_upper()
+	return "A MISSION REWARD"
+
+
+func _toggle_pick(on: bool, kind: String, id: String) -> void:
+	var unl := Game.unlocked_list()
+	var pick: Array = Game.chosen(kind, unl)
+	if on and id not in pick:
+		if pick.size() >= Data.LOADOUT_SLOTS:
+			Sfx.play("click", -4.0, 0.6)
+			show_screen("loadout")
+			return
+		pick.append(id)
+	elif not on:
+		if kind == "w" and pick.size() <= 1:
+			show_screen("loadout")
+			return
+		pick.erase(id)
+	Game.set_chosen(kind, pick)
+	Sfx.play("click", -8.0)
+	show_screen("loadout")
 
 
 func _credits() -> void:

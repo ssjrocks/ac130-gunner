@@ -347,7 +347,7 @@ static func _commas(n: int) -> String:
 
 func _draw_weapons(g, sz: Vector2) -> void:
 	var x := sz.x - 430.0
-	var y := sz.y * 0.2
+	var y := sz.y * 0.16
 	_text(Vector2(x, y), "WEAPONS", 16, UiTheme.DIM)
 	y += 26
 	for i in g.weapons.size():
@@ -366,9 +366,9 @@ func _draw_weapons(g, sz: Vector2) -> void:
 			status = "%d" % w.ammo
 			if int(w.spare) >= 0:
 				status += " +%d" % w.spare
-		_text(Vector2(x, y), ("> " if sel else "  ") + label, 20, col)
-		_text(Vector2(x + 150, y), status, 18, col)
-		y += 26
+		_text(Vector2(x, y), ("> " if sel else "  ") + label, 18, col)
+		_text(Vector2(x + 150, y), status, 17, col)
+		y += 22
 	if not g.supports.is_empty():
 		y += 10
 		_text(Vector2(x, y), "SUPPORT [G]", 16, UiTheme.ACCENT if g.support_mode else UiTheme.DIM)
@@ -377,9 +377,13 @@ func _draw_weapons(g, sz: Vector2) -> void:
 			var s: Dictionary = g.supports[i]
 			var sel2: bool = g.support_mode and i == g.ssel
 			var col2 := UiTheme.ACCENT if sel2 else C
-			_text(Vector2(x, y), ("> " if sel2 else "  ") + "%d %s" % [i + 1, s.def.short], 18, col2)
-			_text(Vector2(x + 190, y), "x%d" % s.charges, 18, col2 if int(s.charges) > 0 else UiTheme.DIM)
-			y += 24
+			_text(Vector2(x, y), ("> " if sel2 else "  ") + "%d %s" % [i + 1, s.def.short], 17, col2)
+			if int(s.charges) < 0:
+				var rt := float(s.ready_t)
+				_text(Vector2(x + 190, y), "READY" if rt <= 0.0 else "%d:%02d" % [int(rt) / 60, int(rt) % 60], 17, col2 if rt <= 0.0 else UiTheme.DIM)
+			else:
+				_text(Vector2(x + 190, y), "x%d" % s.charges, 17, col2 if int(s.charges) > 0 else UiTheme.DIM)
+			y += 21
 	var pend: Array = []
 	for gd in battle.ordnance.guided:
 		if gd.by_player:

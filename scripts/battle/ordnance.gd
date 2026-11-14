@@ -48,7 +48,9 @@ func _update_shells(dt: float) -> void:
 				battle.effects.give("beam", s.n)
 			shells[i] = shells[shells.size() - 1]
 			shells.pop_back()
-			explode(s.b, s.def, true, s.wid, s.bidx, s.water)
+			# airburst rounds go off above the ground
+			var ab := float(s.def.get("airburst", 0.0))
+			explode(s.b + Vector3.UP * ab, s.def, true, s.wid, -1 if ab > 0.0 else s.bidx, s.water and ab <= 0.0)
 		elif s.n:
 			var f: float = s.t / s.T
 			var p := _shell_pos(s, f)
@@ -126,14 +128,20 @@ func launch_guided(kind: String, def: Dictionary, start: Vector3, target: Vector
 		g.start = Vector3(s2.x, battle.world.height(s2.x, s2.y) + 80.0, s2.y)
 	if kind != "illum":
 		var mi := MeshInstance3D.new()
-		mi.mesh = Meshes.get_mesh("bomb" if kind == "bomb" else "missile")
+		mi.mesh = Meshes.get_mesh("missile" if kind in ["missile", "cruise", "rocket"] else "bomb")
 		mi.material_override = Mats.solid()
-		mi.set_instance_shader_parameter("heat", 0.9 if kind != "bomb" else 0.5)
-		if kind == "cruise":
-			mi.scale = Vector3(2.0, 2.0, 2.6)
+		mi.set_instance_shader_parameter("heat", 0.9 if kind in ["missile", "cruise", "rocket"] else 0.5)
+		match kind:
+			"cruise":
+				mi.scale = Vector3(2.0, 2.0, 2.6)
+			"rocket":
+				mi.scale = Vector3(1.4, 1.4, 1.8)
+			"shell", "smoke":
+				mi.scale = Vector3.ONE * 0.3
 		add_child(mi)
 		g.n = mi
-	if kind in ["missile", "cruise"]:
+	g["scale"] = g.n.scale if g.n else Vector3.ONE
+	if kind in ["missile", "cruise", "rocket"]:
 		g.glow = battle.effects.take("glow")
 		g.glow.set_instance_shader_parameter("fx_color", Color(2.2, 1.6, 0.9))
 		g.glow.set_instance_shader_parameter("fx_alpha", 1.0)
@@ -167,6 +175,10 @@ func _guided_pos(g: Dictionary, f: float) -> Vector3:
 			return p
 		"illum":
 			return b + Vector3.UP * lerpf(800.0, 550.0, f)
+		"shell", "smoke", "rocket":
+			# a high ballistic arc from a gun line or launcher far off
+			var apex: float = a.distance_to(b) * (0.25 if g.kind == "rocket" else 0.35)
+			return a.lerp(b, f) + Vector3.UP * apex * 4.0 * f * (1.0 - f)
 	return a.lerp(b, f)
 
 
@@ -188,13 +200,12 @@ func _update_guided(dt: float) -> void:
 			var dir := (p2 - p)
 			if dir.length_squared() > 0.0001:
 				g.n.transform = Transform3D(Basis.looking_at(dir.normalized(), Vector3.UP if absf(dir.normalized().y) < 0.99 else Vector3.FORWARD), p)
-				if g.kind == "cruise":
-					g.n.scale = Vector3(2.0, 2.0, 2.6)
+				g.n.scale = g.scale
 		if g.glow:
 			g.glow.position = p
 			var s := maxf(0.8, battle.effects.mpp(p) * 3.0)
 			g.glow.scale = Vector3(s, s, s)
-		if g.kind in ["missile", "cruise"]:
+		if g.kind in ["missile", "cruise", "rocket"]:
 			g.trail -= dt
 			if g.trail <= 0.0:
 				g.trail = 0.04
@@ -227,7 +238,37 @@ func _guided_done(g: Dictionary) -> void:
 			battle.radio("SPECTRE", "Lost the spot, weapon went ballistic.")
 	var hit: Dictionary = battle.world.raycast(target + Vector3(0, 60, 0), Vector3.DOWN, 200.0)
 	var p: Vector3 = hit.get("pos", target)
+	match g.kind:
+		"cbu":
+			_sensor_fuzed(p, g)
+			return
+		"smoke":
+			var dur := float(g.def.get("duration", 90.0))
+			battle.world.add_smoke(p, 38.0, battle.time + dur)
+			battle.effects.smoke_screen(p, 38.0, dur)
+			battle.effects.impact(p, "small", false)
+			return
 	explode(p, g.def, g.by_player, g.wid, int(hit.get("bidx", -1)), bool(hit.get("water", false)))
+
+
+## CBU-97: the dispenser opens high up and each skeet hunts the nearest
+## vehicle it hasn't been given yet. Any vehicle: its sensors can't tell
+## friend from foe, so check the area first.
+func _sensor_fuzed(p: Vector3, g: Dictionary) -> void:
+	var def: Dictionary = g.def
+	battle.effects.impact(p + Vector3.UP * 120.0, "flak", false)
+	var vehs: Array = []
+	for u in battle.units.query(p, float(def.radius)):
+		if u.alive and u.veh and u.beh != "heli" and Vector2(u.pos.x - p.x, u.pos.z - p.z).length() < float(def.radius):
+			vehs.append(u)
+	vehs.sort_custom(func(a, b): return a.pos.distance_to(p) < b.pos.distance_to(p))
+	var kills := 0
+	for k in mini(int(def.get("skeets", 10)), vehs.size()):
+		var v = vehs[k]
+		battle.effects.impact(v.pos + Vector3(0, 1.5, 0), "medium", false)
+		kills += battle.units.damage_area(v.pos + Vector3(0, 1.0, 0), 3.0, float(def.dmg), int(def.pen), g.by_player, g.wid)
+	if g.by_player:
+		battle.on_player_impact(p, def, kills)
 
 
 func _update_illum(dt: float) -> void:

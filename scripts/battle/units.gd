@@ -99,6 +99,8 @@ var acc_mult := 1.0
 var hp_mult := 1.0
 var aa_mult := 1.0
 var cleanup_t := 0.0
+var audit_shots := 0        # autotest: ranged shots fired, and how many had no fresh sight line
+var audit_blind := 0
 
 
 func _ready() -> void:
@@ -750,6 +752,12 @@ func _fight(u: U, dt: float) -> void:
 	var dist := dv.length()
 	if dist > rng * 1.1:
 		return
+	# never fire at what you can't see: check the sight line for every shot
+	# and drop a target that has gone behind cover
+	if not u.d.get("melee", false) and not can_see(u, t):
+		u.target = null
+		u.think_t = minf(u.think_t, 0.2)
+		return
 	u.fire_t = 1.0 / float(u.d.rof) * randf_range(0.7, 1.4)
 	u.data["shots"] = int(u.data.get("shots", 0)) + 1
 	if u.supp_t > 0.0:
@@ -770,6 +778,10 @@ func _fight(u: U, dt: float) -> void:
 		return
 	var muzzle := u.pos + Vector3(0, 2.0 if u.veh else 1.4, 0)
 	var vis: bool = battle.near_view(u.pos)
+	if Game.autotest != "":
+		audit_shots += 1
+		if not can_see(u, t):
+			audit_blind += 1
 	if u.d.has("explosive"):
 		var miss := Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * dist * 0.03 * (0.3 if randf() < p else 1.0)
 		battle.ordnance.ground_shot(muzzle, t.pos + Vector3(0, 0.6, 0) + miss, u)

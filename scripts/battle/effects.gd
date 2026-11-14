@@ -114,6 +114,7 @@ func _apply(p: Dictionary, f: float) -> void:
 
 
 func _process(dt: float) -> void:
+	_update_screens(dt)
 	var cam: Camera3D = get_viewport().get_camera_3d()
 	if cam:
 		cam_pos = cam.global_position
@@ -141,6 +142,33 @@ func _process(dt: float) -> void:
 
 
 # --- Emitters (fires, smoke columns) ---------------------------------------
+
+var screens: Array = []      # smoke screens: {p, r, t, life, acc}
+
+
+## A thick white smoke screen that keeps billowing for life seconds.
+func smoke_screen(p: Vector3, r: float, life: float) -> void:
+	screens.append({"p": p, "r": r, "t": 0.0, "life": life, "acc": 0.0})
+
+
+func _update_screens(dt: float) -> void:
+	var i := screens.size() - 1
+	while i >= 0:
+		var s: Dictionary = screens[i]
+		s.t += dt
+		s.acc += dt
+		var fade: float = 1.0 - smoothstep(s.life - 15.0, s.life, s.t)
+		while s.acc > 0.25:
+			s.acc -= 0.25
+			var a := randf() * TAU
+			var rr: float = sqrt(randf()) * s.r
+			var q: Vector3 = s.p + Vector3(cos(a) * rr, randf() * s.r * 0.5, sin(a) * rr)
+			spawn("puff", q, {"life": randf_range(7.0, 10.0), "s0": 14.0, "s1": 32.0, "a0": 0.85 * fade, "a1": 0.0,
+				"c": Color(0.86, 0.86, 0.83), "h0": 0.22, "h1": 0.18, "v": Vector3(0.6, 0.5, 0.2), "px": 2.0})
+		if s.t >= s.life:
+			screens.remove_at(i)
+		i -= 1
+
 
 func fire(p: Vector3, size: float, life: float, smoke := true) -> void:
 	if recorder and _depth == 0:

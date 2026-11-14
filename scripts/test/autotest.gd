@@ -60,6 +60,10 @@ func begin(s: String) -> void:
 		flow_mode = true
 		_illum_test()
 		return
+	if parts[0] == "arsenal":
+		flow_mode = true
+		_arsenal_test()
+		return
 	if parts[0] == "vista":
 		flow_mode = true
 		_vista_test(parts[1], parts[2] if parts.size() > 2 else "day")
@@ -282,7 +286,7 @@ func _menu_shots() -> void:
 		Game.main.show_menu("title")
 		return
 	DirAccess.make_dir_recursive_absolute(shots_dir)
-	for sname in ["title", "campaign", "skirmish", "laststand", "career", "settings", "controls", "replays", "credits"]:
+	for sname in ["title", "campaign", "skirmish", "laststand", "career", "settings", "controls", "replays", "credits", "loadout"]:
 		Game.main.show_menu(sname)
 		for i in 6:
 			await get_tree().process_frame
@@ -1525,4 +1529,100 @@ func _vista_test(map_id: String, tod: String) -> void:
 		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("vista_%s_%s.png" % [map_id, sh[0]]))
 		print("[vista] saved ", sh[0])
 	get_tree().quit()
+
+
+## Fires each new weapon and calls each new call-in at a fresh group of
+## targets, and reports what it did.
+func _arsenal_test() -> void:
+	Game.settings.loadout = "all"
+	var Data := load("res://scripts/data/data.gd")
+	Game.career["loadout_w"] = ["w_127", "w_20", "w_25", "w_40ab", "w_105ab", "w_hellfire", "w_viper", "w_atl", "w_762"]
+	Game.career["loadout_s"] = ["s_arty", "s_gmlrs", "s_cbu", "s_smoke", "s_switchblade", "s_jdam"]
+	var cfg := Missions.skirmish_cfg("flats", "cas", "day", 1)
+	Game.start_mission(cfg)
+	while _battle() == null or not _battle().built:
+		await get_tree().process_frame
+	var b = _battle()
+	b.mission.set_process(false)
+	var g = b.gunship
+	g.bot = false
+	g.plane_dmg = 0.0
+	g.has_laser = true
+	g.laser_latch = true
+	var w = b.world
+	print("[arsenal] weapons: %s" % ", ".join(PackedStringArray(g.weapons.map(func(x): return x.id))))
+	print("[arsenal] call-ins: %s" % ", ".join(PackedStringArray(g.supports.map(func(x): return "%s(%d)" % [x.id, x.charges]))))
+	var spot := 0
+	for i in g.weapons.size():
+		var wp: Dictionary = g.weapons[i]
+		var c := _arsenal_spot(w, g, spot)
+		spot += 1
+		var inf: Array = b.units.squad(["rifle", "rifle", "rifle", "rifle", "rifle", "rifle"], 1, c, 10.0, "t%d" % i, {"order": "hold"})
+		var veh = b.units.spawn("technical", 1, c + Vector3(25, 0, 0), "t%d" % i, {"order": "hold"})
+		var tank = b.units.spawn("tank", 1, c + Vector3(-25, 0, 0), "t%d" % i, {"order": "hold"})
+		for u in inf + [veh, tank]:
+			u.data["no_fire"] = true
+		g.wsel = i
+		var shots := 0
+		var aims := [c, veh.pos, tank.pos]
+		for a in aims:
+			g.aim_point = a
+			g.aim_valid = true
+			g.look_dir = (a - (g.global_position + Vector3(0, -3, 0))).normalized()
+			b.sf_laser = {}
+			g.lasing = true
+			for k in mini(int(wp.def.mag), 40 if not wp.def.has("guided") else 1):
+				g._shoot(wp)
+				shots += 1
+				await _wait_s(1.0 / float(wp.def.rate) + (0.0 if wp.def.get("beam", false) else 0.0))
+			await _wait_s(float(g.impact_time(a)) + 1.5)
+		g.lasing = false
+		var dead_inf := inf.filter(func(u): return not u.alive).size()
+		print("[arsenal] %-10s %3d shots: %d of 6 infantry, technical %s, tank %s" % [wp.def.short, shots, dead_inf,
+			"killed" if not veh.alive else "%d%% hp" % int(100.0 * veh.hp / float(veh.d.hp)),
+			"killed" if not tank.alive else "%d%% hp" % int(100.0 * tank.hp / float(tank.d.hp))])
+	for i in g.supports.size():
+		var s: Dictionary = g.supports[i]
+		var c := _arsenal_spot(w, g, spot)
+		spot += 1
+		var inf: Array = b.units.squad(["rifle", "rifle", "rifle", "rifle", "rifle", "rifle", "rifle", "rifle"], 1, c, 30.0, "s%d" % i, {"order": "hold"})
+		var vehs: Array = []
+		for k in 3:
+			vehs.append(b.units.spawn(["technical", "truck", "btr"][k], 1, c + Vector3(-50 + k * 50, 0, 40), "s%d" % i, {"order": "hold"}))
+		g.aim_point = c
+		g.aim_valid = true
+		g.lasing = true
+		g.ssel = i
+		g.support_mode = true
+		var t0: float = b.time
+		g._call_support()
+		var tot := float(s.def.tot) + float(s.def.get("count", 1)) * float(s.def.get("stagger", 0.9))
+		if s.id == "s_smoke":
+			await _wait_s(tot + 4.0)
+			var a := c + Vector3(-120, 1.6, 0)
+			var e := c + Vector3(120, 1.6, 0)
+			print("[arsenal] %-12s sight line through the smoke blocked: %s; 200 m off to the side: %s" % [s.def.short,
+				str(not w.los(a, e)), "clear" if w.los(a + Vector3(0, 0, 200), e + Vector3(0, 0, 200)) else "blocked"])
+			continue
+		await _wait_s(tot + 3.0)
+		g.lasing = false
+		var di := inf.filter(func(u): return not u.alive).size()
+		var dv := vehs.filter(func(u): return not u.alive).size()
+		var note := ""
+		if int(s.charges) < 0:
+			g.support_mode = true
+			g._call_support()
+			note = " | called again at once: reload left %.0f s, %d rounds in the air" % [float(s.ready_t), b.ordnance.guided.size()]
+		print("[arsenal] %-12s landed after ~%.0f s: %d of 8 infantry, %d of 3 vehicles%s" % [s.def.short, b.time - t0 - 3.0, di, dv, note])
+	get_tree().quit()
+
+
+func _arsenal_spot(w, g, i: int) -> Vector3:
+	var a := float(i) * 0.9
+	var p := Vector2(g.orbit_center.x, g.orbit_center.z) + Vector2(cos(a), sin(a)) * (500.0 + 120.0 * (i % 3))
+	for k in 40:
+		if w.ground_ok(p) and not w.in_building(p, 60.0):
+			break
+		p += Vector2(60, 35)
+	return w.to3(p)
 

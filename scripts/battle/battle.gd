@@ -265,6 +265,8 @@ func _finish() -> void:
 		"cfg": cfg, "state": mission.state, "text": mission.result_text, "stats": stats.duplicate(),
 		"score": score, "time": mission.t, "wave": mission.wave, "bonus": mission.score_bonus,
 	}
+	if Game.autotest != "":
+		print("[los audit] %d ground shots, %d without a sight line at the moment of firing" % [units.audit_shots, units.audit_blind])
 	if recorder:
 		replay_path = recorder.save(result)
 		result["replay"] = replay_path
