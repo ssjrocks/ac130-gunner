@@ -24,13 +24,16 @@ aircraft are CC BY models from Sketchfab (see [CREDITS.md](CREDITS.md)).
   missiles, Viper Strike and SDB laser-guided bombs, and the Advanced Tactical
   Laser. Each has its own time of flight, dispersion, blast and armour
   penetration.
-- **Fifteen call-ins:** MQ-9 Hellfire, F/A-18 JDAM and GBU-12, Tomahawk,
-  GMLRS rocket, CBU-97 anti-armour cluster bomb, an 85 mm artillery barrage
+- **Sixteen call-ins:** MQ-9 Hellfire, F/A-18 JDAM and GBU-12, Tomahawk,
+  GMLRS rocket, CBU-97 anti-armour and CBU-87 anti-personnel cluster bombs,
+  an 85 mm artillery barrage
   (no limit, one minute to reload), smoke screens that block sight lines,
-  Switchblade loitering munitions, illumination rounds, an A-10 gun run and a
+  Switchblade loitering munitions, illumination rounds (16 a sortie), an A-10
+  gun run and a
   show of force along a strafe line you turn with the mouse wheel, a QRF
-  platoon that drives out from its base (it dismounts to fight any contact on
-  the way, then mounts up and carries on), a Black Hawk squad insertion, and
+  platoon that drives out from its base (it dismounts to fight anyone who
+  shoots at it on the way, or a horde big enough to block the road, then
+  mounts up and carries on), a Black Hawk squad insertion, and
   medevac.
 - **Loadout:** pick nine weapons and nine call-ins from what your rank has
   unlocked; they go on the number keys in the order you pick them.
@@ -53,8 +56,11 @@ aircraft are CC BY models from Sketchfab (see [CREDITS.md](CREDITS.md)).
   coordinated strike plus SF exfil, combat search and rescue, SAM hunt, HVT
   hunt among civilian traffic, outbreak (survivors against zombie hordes),
   last stand, survival.
-- **Modes:** a 46-mission campaign across 12 chapters, skirmish (any map and
-  mission type), survival (endless calls for fire) and last stand (endless
+- **Outbreak:** the towns are full of the infected, more where the buildings
+  are thickest. They stand about in the streets until something living comes
+  near or an explosion wakes them, then they go for the survivors.
+- **Modes:** two campaigns, Afghanistan (39 missions in 10 chapters) and
+  Outbreak (9 missions in 3 chapters), skirmish (any map and mission type), survival (endless calls for fire) and last stand (endless
   waves, against insurgents or zombies).
 - **Replays:** every finished sortie is recorded (the last 30 are kept). Watch
   them from the Replays menu with a free-flying camera, the gunship's sensor

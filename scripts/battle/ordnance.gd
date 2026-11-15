@@ -12,6 +12,7 @@ var guided: Array = []
 var threats: Array = []
 var ground: Array = []
 var illum: Array = []
+var bomblets: Array = []        # CBU-87 submunitions still falling: {t, p, drop}
 var shell_n := 0
 
 
@@ -158,7 +159,7 @@ func _guided_pos(g: Dictionary, f: float) -> Vector3:
 			var ctrl := a.lerp(b, 0.4) + Vector3.UP * a.distance_to(b) * 0.08
 			var e := f * f * (3.0 - 2.0 * f) * 0.3 + f * 0.7
 			return a.lerp(ctrl, e).lerp(ctrl.lerp(b, e), e)
-		"bomb":
+		"bomb", "cbu", "cem":
 			var h := 1.0 - pow(1.0 - f, 1.6)
 			var p := a.lerp(b, h)
 			p.y = lerpf(a.y, b.y, f * f)
@@ -242,6 +243,9 @@ func _guided_done(g: Dictionary) -> void:
 		"cbu":
 			_sensor_fuzed(p, g)
 			return
+		"cem":
+			_dispense(p, g)
+			return
 		"smoke":
 			var dur := float(g.def.get("duration", 90.0))
 			battle.world.add_smoke(p, 38.0, battle.time + dur)
@@ -269,6 +273,53 @@ func _sensor_fuzed(p: Vector3, g: Dictionary) -> void:
 		kills += battle.units.damage_area(v.pos + Vector3(0, 1.0, 0), 3.0, float(def.dmg), int(def.pen), g.by_player, g.wid)
 	if g.by_player:
 		battle.on_player_impact(p, def, kills)
+
+
+## CBU-87: the canister opens a few hundred metres up and its bomblets come
+## down over an oval along the bomb's track, each a small shaped charge in a
+## fragmenting case. They land over a second or two.
+func _dispense(p: Vector3, g: Dictionary) -> void:
+	var def: Dictionary = g.def
+	battle.effects.impact(p + Vector3.UP * 250.0, "flak", false)
+	var along := Vector3(p.x - g.start.x, 0, p.z - g.start.z)
+	along = along.normalized() if along.length() > 1.0 else Vector3.FORWARD
+	var side := along.cross(Vector3.UP)
+	var n := int(def.bomblets)
+	var drop := {"kills": 0, "left": n, "p": p, "def": def, "by_player": g.by_player, "wid": g.wid}
+	for k in n:
+		var r := sqrt(randf())
+		var a := randf() * TAU
+		var q: Vector3 = p + along * (cos(a) * r * float(def.length) * 0.5) + side * (sin(a) * r * float(def.width) * 0.5)
+		q.y = battle.world.height(q.x, q.z)
+		bomblets.append({"t": 1.0 + randf() * 1.4, "p": q, "drop": drop})
+
+
+func _update_bomblets(dt: float) -> void:
+	var i := bomblets.size() - 1
+	while i >= 0:
+		var b: Dictionary = bomblets[i]
+		b.t -= dt
+		if b.t <= 0.0:
+			_bomblet(b)
+			bomblets.remove_at(i)
+		i -= 1
+
+
+func _bomblet(b: Dictionary) -> void:
+	var drop: Dictionary = b.drop
+	var def: Dictionary = drop.def
+	battle.effects.impact(b.p, "small", false)
+	drop.kills = int(drop.kills) + battle.units.damage_area(b.p + Vector3(0, 0.5, 0), float(def.radius), float(def.dmg), int(def.pen), drop.by_player, drop.wid)
+	battle.world.damage_buildings(b.p, float(def.radius), float(def.dmg) * 0.3, int(def.pen), -1)
+	drop.left = int(drop.left) - 1
+	if int(drop.left) % 25 == 0:
+		var d: float = battle.gunship.global_position.distance_to(b.p) if battle.gunship else 4000.0
+		Sfx.play("boom_far", -18.0, randf_range(1.1, 1.4), d / 1500.0)
+	if int(drop.left) == 0:
+		# one scare and one hit report for the whole drop
+		battle.units.scare(drop.p, float(def.length) * 0.6)
+		if drop.by_player:
+			battle.on_player_impact(drop.p, def, int(drop.kills))
 
 
 func _update_illum(dt: float) -> void:
@@ -397,5 +448,6 @@ func _process(dt: float) -> void:
 	_update_shells(dt)
 	_update_ground(dt)
 	_update_guided(dt)
+	_update_bomblets(dt)
 	_update_illum(dt)
 	_update_threats(dt)

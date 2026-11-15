@@ -154,10 +154,14 @@ func unlocked(id: String) -> bool:
 	return id in unlocked_list()
 
 
+## A campaign mission opens once the one before it in the same campaign is
+## won (and stays open once won itself, when a new one is added before it).
 func campaign_open(i: int) -> bool:
-	if i == 0:
+	var ms: Array = Missions.campaign_missions(Missions.camp_of(i))
+	var k := ms.find(i)
+	if k <= 0 or career.completed.has(Missions.CAMPAIGN[i].id):
 		return true
-	return career.completed.has(Missions.CAMPAIGN[i - 1].id)
+	return career.completed.has(Missions.CAMPAIGN[ms[k - 1]].id)
 
 
 ## Works out XP, best scores, rank-ups and unlocks for a finished sortie.

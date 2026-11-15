@@ -36,6 +36,7 @@ var brief_label: RichTextLabel
 var launch_btn: Button
 var update_box: HBoxContainer
 var opts := {"map": 0, "type": 0, "time": 0, "diff": 1, "zombies": false}
+static var camp_id := "afghanistan"   # the campaign tab, kept across menu rebuilds
 var loadout_back := "title"   # where the loadout screen's BACK returns to
 
 
@@ -268,8 +269,15 @@ func _refresh_update() -> void:
 
 func _campaign() -> void:
 	var v := _vbox(body, 16)
-	_header(v, "CAMPAIGN: " + Missions.CAMPAIGN_NAME)
-	_label(v, _rank_line(), 18, UiTheme.ACCENT)
+	var camp: Dictionary = Missions.campaign_def(camp_id)
+	_header(v, "CAMPAIGN: " + String(camp.name))
+	var crow := _hbox(v)
+	for cd in Missions.CAMPAIGNS:
+		var cb := _button(crow, String(cd.name), func():
+			camp_id = cd.id
+			show_screen("campaign"), 240)
+		cb.disabled = cd.id == camp.id
+	_label(crow, _rank_line(), 18, UiTheme.ACCENT)
 	var h := _hbox(v, 24)
 	h.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var scroll := ScrollContainer.new()
@@ -280,16 +288,18 @@ func _campaign() -> void:
 	var list := _vbox(scroll, 6)
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var last_ch := -1
-	var first_open := 0
-	for i in Missions.CAMPAIGN.size():
+	var ms: Array = Missions.campaign_missions(camp.id)
+	var first_open: int = ms[0]
+	for k in ms.size():
+		var i: int = ms[k]
 		var m: Dictionary = Missions.CAMPAIGN[i]
 		if int(m.chapter) != last_ch:
 			last_ch = int(m.chapter)
-			_label(list, "%d. %s" % [last_ch + 1, Missions.CHAPTERS[last_ch]], 18, UiTheme.DIM)
+			_label(list, "%d. %s" % [last_ch + 1, camp.chapters[last_ch]], 18, UiTheme.DIM)
 		var open := Game.campaign_open(i)
 		var done: bool = Game.career.completed.has(m.id)
 		var tag := "  [DONE]" if done else ("" if open else "  [LOCKED]")
-		var b := _button(list, "  %02d  %s%s" % [i + 1, String(m.name).to_upper(), tag], _select_mission.bind(i))
+		var b := _button(list, "  %02d  %s%s" % [k + 1, String(m.name).to_upper(), tag], _select_mission.bind(i))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.disabled = not open
 		if open:
@@ -357,6 +367,7 @@ func _select_mission(i: int) -> void:
 
 func _launch_campaign() -> void:
 	var c := Missions.campaign_cfg(sel_mission)
+	camp_id = Missions.camp_of(sel_mission)
 	c["difficulty"] = opts.diff
 	Game.start_mission(c)
 

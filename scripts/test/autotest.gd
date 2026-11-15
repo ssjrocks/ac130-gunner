@@ -95,6 +95,10 @@ func begin(s: String) -> void:
 		flow_mode = true
 		_alt_test(parts[1])
 		return
+	if parts[0] == "dodge":
+		flow_mode = true
+		_dodge_test(parts[1], parts[2], parts.size() > 3)
+		return
 	if parts[0] == "predict":
 		flow_mode = true
 		_predict_test()
@@ -209,7 +213,9 @@ func _process(dt: float) -> void:
 				nb += k
 				if k == 0:
 					alone += 1
-			print("   infected %d: average %.1f others within 30 m, %d%% alone" % [zs.size(), float(nb) / maxf(zs.size(), 1), int(100.0 * alone / maxf(zs.size(), 1))])
+			var dormant := zs.filter(func(x): return x.order == "wander").size()
+			print("   infected %d (%d still dormant in the streets, %d placed in towns): average %.1f others within 30 m, %d%% alone" % [zs.size(), dormant,
+				int(b.mission.data.get("residents", 0)), float(nb) / maxf(zs.size(), 1), int(100.0 * alone / maxf(zs.size(), 1))])
 		if b.mission.type == "strike":
 			var smi = b.mission
 			var hs = smi.data.get("heli")
@@ -290,8 +296,13 @@ func _menu_shots() -> void:
 		Game.main.show_menu("title")
 		return
 	DirAccess.make_dir_recursive_absolute(shots_dir)
-	for sname in ["title", "campaign", "skirmish", "laststand", "career", "settings", "controls", "replays", "credits", "loadout"]:
-		Game.main.show_menu(sname)
+	for sname in ["title", "campaign", "campaign_outbreak", "skirmish", "laststand", "career", "settings", "controls", "replays", "credits", "loadout"]:
+		if sname == "campaign_outbreak":
+			load("res://scripts/ui/menus.gd").camp_id = "outbreak"
+			Game.main.show_menu("campaign")
+		else:
+			load("res://scripts/ui/menus.gd").camp_id = "afghanistan"
+			Game.main.show_menu(sname)
 		for i in 6:
 			await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -1113,6 +1124,47 @@ func _support_test(kind: String, map_id: String) -> void:
 					break
 			var near2: int = b.units.members("qrf1").filter(func(u): return not u.veh and u.pos.distance_to(target2) < 150.0).size()
 			print("[support] QRF: done after %.0f s, %d troops within 150 m of the objective" % [t - t0, near2])
+		"qrfz":
+			# a few infected by the road a third of the way, a horde two thirds
+			# of the way: it should drive past the first and stop for the second
+			var target3: Vector3 = c
+			var t0 := t
+			b.support.send_qrf(target3)
+			var lead3 = b.units.members("qrf1")[0]
+			var path3: Array = lead3.path
+			var groups := {}
+			for spec in [["few", 0.33, 6], ["horde", 0.66, 25]]:
+				var k: int = int(path3.size() * float(spec[1]))
+				var at: Vector3 = path3[k]
+				var side3: Vector3 = (path3[k + 1] - at).cross(Vector3.UP).normalized()
+				var zs: Array = []
+				for j in int(spec[2]):
+					zs.append("zombie")
+				b.units.squad(zs, 1, at + side3 * 45.0, 10.0, spec[0], {"order": "wander"})
+				groups[spec[0]] = at
+			var last3 := ""
+			while t - t0 < 900.0:
+				await _wait_s(1.0)
+				if not lead3.alive:
+					var vs: Array = b.units.members("qrf1").filter(func(u): return u.veh and u.alive)
+					if vs.is_empty():
+						print("[support] QRF: every vehicle lost")
+						break
+					lead3 = vs[0]
+					print("[support] QRF: lead vehicle lost, following the next one")
+				var st: String = lead3.data.get("qrf_state", "driving")
+				var inf: int = b.units.members("qrf1").filter(func(u): return not u.veh).size()
+				if st != last3:
+					print("[support] QRF t=%3d s: %-9s %d troops out, few-group %d left (lead %.0f m from it), horde %d left (lead %.0f m from it)" % [int(t - t0), st, inf,
+						b.units.count("few"), lead3.pos.distance_to(groups.few), b.units.count("horde"), lead3.pos.distance_to(groups.horde)])
+				last3 = st
+				if int(t - t0) % 30 == 0:
+					print("    t=%d lead alive=%s hp=%.0f fight_t=%.0f clear_t=%.0f halted=%s order=%s vehicles=%d troops=%d horde=%d" % [int(t - t0), lead3.alive, lead3.hp,
+						float(lead3.data.get("fight_t", 0)), float(lead3.data.get("clear_t", 0)), lead3.halted, lead3.order,
+						b.units.members("qrf1").filter(func(u): return u.veh).size(), inf, b.units.count("horde")])
+				if lead3.order != "convoy" and inf >= 20:
+					break
+			print("[support] QRF: done after %.0f s, lead %.0f m from the objective" % [t - t0, lead3.pos.distance_to(target3)])
 		"heli":
 			var t1 := t
 			b.support.insert_squad(c)
@@ -1129,6 +1181,79 @@ func _support_test(kind: String, map_id: String) -> void:
 			for u in sq:
 				dist = maxf(dist, u.pos.distance_to(c))
 			print("[support] Black Hawk: landed after %.0f s, %d soldiers on the ground (all within %.0f m of the call), helicopter %s after %.0f s" % [landed, sq.size(), dist, h.data.get("state", ""), t - t1])
+	get_tree().quit()
+
+
+## Do enemies get out of the way of a strike they can't know about? Alternates
+## a JDAM call on an enemy group with the same wait and no call, and compares
+## how far the group moves before the bomb would land.
+func _dodge_test(map_id: String, mtype: String, flip: bool) -> void:
+	Game.settings.loadout = "all"
+	var cfg := Missions.skirmish_cfg(map_id, mtype, "day", 1)
+	Game.start_mission(cfg)
+	while _battle() == null:
+		await get_tree().process_frame
+	var b = _battle()
+	var g = b.gunship
+	g.bot = false
+	g.plane_dmg = 0.0
+	var si := -1
+	for i in g.supports.size():
+		if g.supports[i].id == "s_jdam":
+			si = i
+	await _wait_s(60.0)
+	for trial in 12:
+		var strike := (trial % 2 == 0) != flip
+		var best = null
+		var best_n := 0
+		for u in b.units.list:
+			if not u.alive or u.team != 1 or u.beh != "soldier" or u.veh:
+				continue
+			var n := 0
+			for v in b.units.query(u.pos, 40.0):
+				if v.alive and v.team == 1 and v.beh == "soldier":
+					n += 1
+			if n > best_n:
+				best_n = n
+				best = u
+		if best == null:
+			print("[dodge] no enemy group left")
+			break
+		var aim: Vector3 = best.pos
+		var grp: Array = []
+		var start := {}
+		var orders := {}
+		for v in b.units.query(aim, 40.0):
+			if v.alive and v.team == 1 and v.beh == "soldier":
+				grp.append(v)
+				start[v.id] = v.pos
+				orders[v.id] = v.order
+		if strike:
+			g.supports[si].charges = 9
+			g.ssel = si
+			g.aim_point = aim
+			g.aim_valid = true
+			g._call_support()
+		await _wait_s(25.0)
+		var moved := 0.0
+		var far := 0
+		var changed: Array = []
+		var left := 0
+		for v in grp:
+			if not v.alive:
+				continue
+			left += 1
+			var d: float = v.pos.distance_to(aim)
+			moved += v.pos.distance_to(start[v.id])
+			if d > 40.0:
+				far += 1
+			if v.order != orders[v.id]:
+				changed.append("%s>%s" % [orders[v.id], v.order])
+		var o0: Dictionary = {}
+		for k in orders:
+			o0[orders[k]] = int(o0.get(orders[k], 0)) + 1
+		print("[dodge] %s %s: %d in the group %s, after 25 s mean move %.0f m, %d of %d now >40 m from the aim, order changes %s" % ["STRIKE " if strike else "no call", "t=%.0f" % b.time, grp.size(), str(o0), moved / maxf(left, 1), far, left, str(changed)])
+		await _wait_s(8.0)
 	get_tree().quit()
 
 
@@ -1565,7 +1690,7 @@ func _arsenal_test() -> void:
 	Game.settings.loadout = "all"
 	var Data := load("res://scripts/data/data.gd")
 	Game.career["loadout_w"] = ["w_127", "w_20", "w_25", "w_40ab", "w_105ab", "w_hellfire", "w_viper", "w_atl", "w_762"]
-	Game.career["loadout_s"] = ["s_arty", "s_gmlrs", "s_cbu", "s_smoke", "s_switchblade", "s_jdam"]
+	Game.career["loadout_s"] = ["s_arty", "s_gmlrs", "s_cbu", "s_cbu87", "s_smoke", "s_switchblade", "s_jdam"]
 	var cfg := Missions.skirmish_cfg("flats", "cas", "day", 1)
 	Game.start_mission(cfg)
 	while _battle() == null or not _battle().built:

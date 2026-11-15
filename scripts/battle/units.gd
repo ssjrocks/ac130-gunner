@@ -531,6 +531,19 @@ func scare(p: Vector3, r: float) -> void:
 		elif u.beh == "soldier" and u.team == 1 and not u.veh:
 			u.supp_t = maxf(u.supp_t, 3.0)
 
+	# the noise brings the dead out of the streets for a long way round
+	for u in query(p, r * 2.5):
+		if u.alive and u.beh == "zombie" and u.order == "wander":
+			wake(u)
+
+
+## A dormant zombie (order "wander") sets off for the living.
+func wake(u: U) -> void:
+	u.order = "assault"
+	var g: Vector3 = u.data.get("wake_goal", u.pos)
+	u.goal = g + Vector3(randf_range(-15, 15), 0, randf_range(-15, 15))
+	u.speed_mul = randf_range(0.7, 1.3)
+
 
 func dismount(u: U) -> void:
 	if u.cargo.is_empty():
@@ -554,7 +567,7 @@ func _qrf_think(u: U) -> void:
 	match st:
 		"driving":
 			if u.order == "convoy" and not u.cargo.is_empty() and time > float(u.data.get("contact_cd", 0.0)):
-				var e = _find_target(u, 380.0, true)
+				var e = _qrf_contact(u)
 				if e != null:
 					for v in members(u.group):
 						if v.veh and v.data.get("qrf_state", "driving") == "driving" and v.order == "convoy":
@@ -563,7 +576,7 @@ func _qrf_think(u: U) -> void:
 			u.halted = true
 			u.data.fight_t = float(u.data.get("fight_t", 0.0)) + 1.0
 			var threat: Vector3 = u.data.get("threat", u.pos)
-			if enemies_near(u.pos, 320.0) == 0 and enemies_near(threat, 200.0) == 0:
+			if _qrf_threats(u.pos, 320.0) == 0 and _qrf_threats(threat, 200.0) == 0:
 				u.data.clear_t = float(u.data.get("clear_t", 0.0)) + 1.0
 			else:
 				u.data.clear_t = 0.0
@@ -576,7 +589,7 @@ func _qrf_think(u: U) -> void:
 		"mounting":
 			u.halted = true
 			var threat2: Vector3 = u.data.get("threat", u.pos)
-			if (enemies_near(u.pos, 320.0) > 0 or enemies_near(threat2, 200.0) > 0) and float(u.data.get("fight_t", 0.0)) < 120.0:
+			if (_qrf_threats(u.pos, 320.0) > 0 or _qrf_threats(threat2, 200.0) > 0) and float(u.data.get("fight_t", 0.0)) < 120.0:
 				u.data.qrf_state = "fighting"
 				u.data.clear_t = 0.0
 				for id in u.data.dismounts:
@@ -603,6 +616,51 @@ func _qrf_think(u: U) -> void:
 				u.data.fight_t = 0.0
 				u.data["contact_cd"] = time + 60.0
 				u.halted = false
+
+
+## The QRF stops for anyone who can shoot back. A few infected are left to
+## the gunners on the move; only a horde big enough to block the road (at
+## least QRF_HORDE within 120 m) makes it dismount.
+const QRF_HORDE := 15
+
+
+func _qrf_contact(u: U):
+	var armed: Array = []
+	var dead := 0
+	var dead_c := Vector3.ZERO
+	for v in query(u.pos, 380.0):
+		if not v.alive or not hostile(u, v) or v.beh == "static":
+			continue
+		var d: float = v.pos.distance_to(u.pos)
+		if d > 380.0:
+			continue
+		if v.beh == "zombie":
+			if d < 120.0:
+				dead += 1
+				dead_c += v.pos
+		else:
+			armed.append([d, v])
+	armed.sort_custom(func(a, b): return a[0] < b[0])
+	for i in mini(armed.size(), 5):
+		if can_see(u, armed[i][1]):
+			return armed[i][1]
+	if dead >= QRF_HORDE:
+		return {"pos": dead_c / dead}
+	return null
+
+
+## Enemies near p the QRF has to deal with: anyone armed, and the infected
+## only when there are enough of them to be a horde.
+func _qrf_threats(p: Vector3, r: float) -> int:
+	var armed := 0
+	var dead := 0
+	for v in query(p, r):
+		if v.alive and v.team == 1 and v.beh != "static" and Vector2(v.pos.x - p.x, v.pos.z - p.z).length() < r:
+			if v.beh == "zombie":
+				dead += 1
+			else:
+				armed += 1
+	return armed + (dead if dead >= QRF_HORDE else 0)
 
 
 func _qrf_dismount(u: U, threat: Vector3) -> void:
@@ -769,6 +827,16 @@ func _think(u: U) -> void:
 					u.order = "hold"
 					dismount(u)
 		"zombie":
+			if u.order == "wander":
+				# shuffling about in the streets until something living comes near
+				u.think_t = randf_range(1.2, 2.2)
+				var e = _find_target(u, 150.0, false)
+				if e != null:
+					wake(u)
+					u.target = e
+				elif not u.moving and randf() < 0.25:
+					u.goal = world.free_spot(Vector2(u.home.x, u.home.z), 30.0)
+				return
 			u.think_t = randf_range(0.35, 0.7)
 			if u.target == null or not u.target.alive or (u.target.pos - u.pos).length() > 120.0:
 				u.target = _find_target(u, 220.0, false)
@@ -928,7 +996,9 @@ func _fight(u: U, dt: float) -> void:
 		p *= 0.6
 	if u.d.get("melee", false):
 		if randf() < p:
-			hurt(t, float(u.d.dmg), false, "")
+			# teeth and fists barely mark a vehicle; a big enough pack left
+			# long enough on one still wrecks it
+			hurt(t, float(u.d.dmg) * (0.03 if t.veh else 1.0), false, "")
 		return
 	var muzzle := u.pos + Vector3(0, 2.0 if u.veh else 1.4, 0)
 	var vis: bool = battle.near_view(u.pos)

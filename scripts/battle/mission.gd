@@ -427,6 +427,7 @@ func _setup_laststand() -> void:
 		for i in int(cfg.get("friendlies", 12)):
 			kinds.append("survivor")
 		units.squad(kinds, 0, site, maxf(_outpost_r(sname), 12.0), "def", {"order": "hold"})
+		_populate_towns(0.6)
 	else:
 		_friendly_squad(site, int(cfg.get("friendlies", 12)), maxf(_outpost_r(sname), 15.0), "def", 1)
 	add_obj("Defend %s" % site_label)
@@ -487,8 +488,32 @@ func _update_laststand(dt: float) -> void:
 
 # --- Zombies ----------------------------------------------------------------
 
+const DEAD_PER_BUILDING := {"house": 1.0, "hut": 0.6, "tall": 2.5, "shed": 0.4, "mosque": 1.5}
+
+
+## A street beside a building between dmin and dmax from the site (in the
+## direction ang when one is given), or a random spot when there's no town.
+func _zombie_spot(dmin: float, dmax: float, ang: float) -> Vector3:
+	var blds: Array = world.buildings
+	if not blds.is_empty():
+		for k in 40:
+			var b: Dictionary = blds[randi() % blds.size()]
+			if not b.alive or not DEAD_PER_BUILDING.has(b.kind):
+				continue
+			var rel: Vector3 = b.c - site
+			var d := Vector2(rel.x, rel.z).length()
+			if d < dmin or d > dmax:
+				continue
+			if ang > -900.0 and absf(angle_difference(atan2(rel.x, -rel.z), ang)) > 0.5:
+				continue
+			return world.free_spot(Vector2(b.c.x, b.c.z), maxf(b.w, b.d) * 0.6 + 6.0)
+	return ring_point(site, dmin, dmax, ang)
+
+
 func _zombie_one(group: String, dmin: float, dmax: float, brutes: bool):
-	var p := ring_point(site, dmin, dmax, data.get("horde_ang", -999.0))
+	var ang: float = data.get("horde_ang", -999.0)
+	# most of them come out of the built-up areas
+	var p := _zombie_spot(dmin, dmax, ang) if randf() < 0.75 else ring_point(site, dmin, dmax, ang)
 	var kind := "brute" if brutes and randf() < 0.06 else "zombie"
 	var u = units.spawn(kind, 1, p, group, {"order": "assault", "goal": site + Vector3(randf_range(-15, 15), 0, randf_range(-15, 15))})
 	u.speed_mul = randf_range(0.7, 1.3)
@@ -514,6 +539,39 @@ func _setup_zombie() -> void:
 	data.horde_t = 90.0
 	for i in int(40 * enemy_mult):
 		_zombie_one("z", 250.0, 900.0, false)
+	_populate_towns()
+
+
+## The towns are full of the dead, more where the buildings are thicker. They
+## stand about in the streets until something living comes near or a blast
+## wakes them, and then they go for the survivors.
+func _populate_towns(share := 1.0) -> void:
+	var cap := int(320 * enemy_mult * share)
+	var blds: Array = world.buildings.duplicate()
+	blds.shuffle()
+	var n := 0
+	for b in blds:
+		if n >= cap:
+			break
+		if not b.alive or not DEAD_PER_BUILDING.has(b.kind):
+			continue
+		var d := Vector2(b.c.x - site.x, b.c.z - site.z).length()
+		if d < 280.0 or d > 2400.0:
+			continue
+		var want: float = float(DEAD_PER_BUILDING[b.kind]) * 0.55 * enemy_mult
+		var k := int(want) + (1 if randf() < want - int(want) else 0)
+		for j in k:
+			var p: Vector3 = world.free_spot(Vector2(b.c.x, b.c.z), maxf(b.w, b.d) * 0.6 + 8.0)
+			var u = units.spawn("brute" if randf() < 0.03 else "zombie", 1, p, "z", {"order": "wander", "goal": p})
+			u.speed_mul = randf_range(0.25, 0.45)
+			u.data["wake_goal"] = site
+			n += 1
+	data.residents = n
+	if Game.autotest != "":
+		var kinds := {}
+		for b in blds:
+			kinds[b.kind] = int(kinds.get(b.kind, 0)) + 1
+		print("[towns] %d buildings %s, %d dead placed in the streets" % [blds.size(), str(kinds), n])
 
 
 func _update_zombie(dt: float) -> void:

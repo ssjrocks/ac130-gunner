@@ -107,7 +107,7 @@ const SUPPORT := {
 	},
 	"s_illum": {
 		"name": "ILLUMINATION ROUND", "short": "ILLUM", "guide": "gps", "kind": "illum", "tot": 6.0,
-		"dmg": 0.0, "radius": 0.0, "pen": 0, "fx": "", "count": 1, "charges": 4,
+		"dmg": 0.0, "radius": 0.0, "pen": 0, "fx": "", "count": 1, "charges": 16,
 		"radio": "Illumination round out, %d seconds.",
 	},
 	# placement "line": a strafe line on the ground, rotated with the wheel
@@ -145,6 +145,13 @@ const SUPPORT := {
 		"dmg": 1800.0, "radius": 160.0, "pen": 5, "fx": "medium", "count": 1, "charges": 1, "skeets": 10,
 		"radio": "Viper 2-2, CBU-97 on the grid, %d seconds. Vehicles only.",
 	},
+	# combined effects: 202 bomblets over an oval along the bomb's track, for
+	# troops in the open and soft or light vehicles; tanks shrug most of it off
+	"s_cbu87": {
+		"name": "CBU-87 COMBINED EFFECTS (ANTI-PERSONNEL)", "short": "CBU-87", "guide": "gps", "kind": "cem", "tot": 24.0,
+		"dmg": 200.0, "radius": 9.0, "pen": 2, "fx": "small", "count": 1, "charges": 1, "bomblets": 202, "length": 220.0, "width": 110.0,
+		"radio": "Viper 2-2, CBU-87 on the grid, %d seconds. Everything in the open on that grid is going to get hit.",
+	},
 	# smoke: blocks everyone's sight lines through the cloud for a minute and a half
 	"s_smoke": {
 		"name": "SMOKE SCREEN (MORTAR)", "short": "SMOKE", "guide": "gps", "kind": "smoke", "tot": 18.0,
@@ -164,7 +171,7 @@ const SUPPORT := {
 	},
 }
 const SUPPORT_ORDER := ["s_hellfire", "s_jdam", "s_lgb18", "s_tomahawk", "s_illum", "s_a10", "s_sof", "s_qrf", "s_heli",
-	"s_arty", "s_gmlrs", "s_cbu", "s_smoke", "s_switchblade", "s_medevac"]
+	"s_arty", "s_gmlrs", "s_cbu", "s_cbu87", "s_smoke", "s_switchblade", "s_medevac"]
 
 # How many weapons and how many call-ins a loadout can carry (one per number key).
 const LOADOUT_SLOTS := 9
@@ -213,6 +220,7 @@ const UNLOCK_NAMES := {
 	"s_arty": "85mm artillery barrage",
 	"s_gmlrs": "GMLRS rocket strike (GPS)",
 	"s_cbu": "CBU-97 sensor-fuzed anti-armour bomb",
+	"s_cbu87": "CBU-87 combined effects cluster bomb",
 	"s_smoke": "Smoke screen",
 	"s_switchblade": "Switchblade loitering munition",
 	"s_medevac": "Medevac helicopter",
@@ -246,6 +254,7 @@ const DESC := {
 	"s_arty": "Eight 85mm rounds over the area, as slow as a JDAM. Never runs out: one minute to reload.",
 	"s_gmlrs": "A GPS rocket from a launcher far away. Big blast, 40 seconds.",
 	"s_cbu": "Each skeet hunts a vehicle in a wide area. Any vehicle, so check for friendlies.",
+	"s_cbu87": "202 bomblets over a 220 by 110 m oval along the bomb's track. Kills men in the open and light vehicles; prone men and tanks fare better.",
 	"s_smoke": "A smoke screen that blocks everyone's sight lines through it for a minute and a half.",
 	"s_switchblade": "A loitering munition from the ground team that rides your laser. Quick to arrive.",
 	"s_medevac": "Lifts the wounded near the point back to an outpost to be patched up. Healed men ride the next one back out. 45 s between calls.",
@@ -259,7 +268,7 @@ const RANKS := [
 	{"name": "Technical Sergeant", "abbr": "TSGT", "xp": 12000, "unlocks": ["w_105", "s_jdam", "s_qrf", "w_40ab"]},
 	{"name": "Master Sergeant", "abbr": "MSGT", "xp": 19000, "unlocks": ["w_lgb", "s_lgb18", "s_illum", "w_hellfire", "s_switchblade"]},
 	{"name": "Senior Master Sergeant", "abbr": "SMSGT", "xp": 28000, "unlocks": ["o_150", "w_griffin", "w_105ab", "s_gmlrs"]},
-	{"name": "Chief Master Sergeant", "abbr": "CMSGT", "xp": 40000, "unlocks": ["s_tomahawk", "w_viper", "s_cbu"]},
+	{"name": "Chief Master Sergeant", "abbr": "CMSGT", "xp": 40000, "unlocks": ["s_tomahawk", "w_viper", "s_cbu", "s_cbu87"]},
 	{"name": "Command Chief Master Sergeant", "abbr": "CCM", "xp": 60000, "unlocks": ["w_atl"]},
 ]
 
